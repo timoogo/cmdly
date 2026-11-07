@@ -145,3 +145,30 @@ For a fully custom React interface, `useCommandEngine(engine)` returns `{ state,
 Optional callbacks `onNavigate`, `onExecute`, `onError`, and `onClose` observe the engine. `strategies.allowTransition(snapshot, action)` can reject an action; `strategies.closeOnComplete(command, answers, finalStep)` overrides the default closing decision. Plugins are optional: each `{ setup(engine) { ...; return cleanup; } }` is installed in array order, and cleanup functions run in reverse order on destruction. Setup errors propagate after cleaning up previously installed plugins. Only these two strategy hooks are currently provided; navigation and history algorithms are not replaceable wholesale. Callback and strategy functions should not throw unless their caller is prepared to handle that error.
 
 The previous `CommandPalette` API remains available from `cmdly`; existing command objects remain valid. Migrate incrementally by importing the engine from `cmdly/core` only where direct control is needed.
+
+## Composable command registries
+
+`createCommandRegistry()` from `cmdly/core` creates a headless registry. It can hold application-wide commands and mount temporary registries for a page, component, or selection:
+
+```ts
+import { createCommandRegistry } from 'cmdly/core';
+
+const global = createCommandRegistry();
+const posts = createCommandRegistry();
+const removeCreate = posts.register({ id: 'create', label: 'Create post', run: () => {} });
+const unmountPosts = global.mount('posts', posts);
+const unsubscribe = global.subscribe(() => console.log(global.list()));
+global.get('posts.create');
+// When the context ends:
+unmountPosts();
+removeCreate();
+unsubscribe();
+```
+
+`registerMany(commands)` validates the entire batch before adding it and returns one cleanup. Registration and mount cleanups are idempotent and cannot remove a later entry. `subscribe(listener)` returns an idempotent unsubscribe. A successful nonempty change notifies the changed registry and each ancestor once, including when a child is mounted more than once. Listeners run synchronously; all affected listeners are called even if one throws, and the first error is rethrown after the change has committed. Listeners should not throw, especially during registration or mounting, because an exception prevents the cleanup function from being returned.
+
+Local command IDs and namespaces must be nonempty, non-whitespace strings without dots. Dots separate namespace segments; `get` takes the full qualified ID. A local command and a mount cannot share a name, nor can two mounts in the same registry. Duplicate entries, invalid segments, and direct or indirect cycles throw before changing state. These rules also prevent collisions after mounting: a conflicting child change is rejected by the child, leaving every registry unchanged. The same child may be mounted under different names or parents. Only registries created by `createCommandRegistry` can be mounted.
+
+`list()` returns a fresh array of shallow command copies in insertion order, expanding each mount in place recursively. Removing and adding an entry moves it to the end. `get()` also returns a shallow copy. The registry captures top-level command properties on registration; nested workflow objects and functions remain shared and should be treated as immutable. Nested `commands` are workflow menus, not registry entries, and are not qualified individually.
+
+Registries do not automatically update a command engine or provide React hooks. Consumers may explicitly pass `registry.list()` to an engine and manage updates themselves. Shared/runtime context and reactive engine and React integration are reserved for later work.

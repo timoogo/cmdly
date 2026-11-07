@@ -1,3 +1,6 @@
+export { createCommandRegistry } from './registry.js';
+export type { CommandRegistry } from './registry.js';
+
 export type Answers = Record<string, string>;
 export type Option = { value: string; label: string };
 export type Step = { id: string; label: string; options: Option[] | ((answers: Answers) => Promise<Option[]>); when?: (answers: Answers) => boolean };
