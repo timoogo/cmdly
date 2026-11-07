@@ -108,3 +108,92 @@ describe('command registry', () => {
     expect(ids(registry)).toEqual(['x']);
   });
 });
+
+describe('registration identity', () => {
+  it('captures a local registration without mutating the original', () => {
+    const registry = createCommandRegistry(), original = command('create');
+    const remove = registry.register(original);
+    const resolved = registry.resolve('create')!;
+    expect(resolved.qualifiedId).toBe('create');
+    expect(resolved.command).toEqual(original);
+    expect(resolved.command).not.toBe(original);
+    expect(resolved.isValid()).toBe(true);
+    resolved.command.label = 'changed';
+    expect(registry.get('create')?.label).toBe('create');
+    expect(original.label).toBe('create');
+    remove(); remove();
+    expect(resolved.isValid()).toBe(false);
+    registry.register(command('create'));
+    expect(resolved.isValid()).toBe(false);
+    expect(registry.resolve('create')?.isValid()).toBe(true);
+  });
+
+  it('tracks each mount in recursive and alternative paths by identity', () => {
+    const root = createCommandRegistry(), middle = createCommandRegistry(), child = createCommandRegistry();
+    child.register(command('create'));
+    const removeChild = middle.mount('posts', child);
+    const removeFirst = root.mount('workspace', middle);
+    root.mount('alternate', middle);
+    const first = root.resolve('workspace.posts.create')!;
+    const alternative = root.resolve('alternate.posts.create')!;
+    const local = child.resolve('create')!;
+    expect(first.command.id).toBe('workspace.posts.create');
+    expect(first.isValid()).toBe(true);
+    removeFirst(); removeFirst();
+    expect(first.isValid()).toBe(false);
+    expect(alternative.isValid()).toBe(true);
+    expect(local.isValid()).toBe(true);
+    root.mount('workspace', middle);
+    expect(first.isValid()).toBe(false);
+    expect(root.resolve('workspace.posts.create')?.isValid()).toBe(true);
+    removeChild();
+    expect(alternative.isValid()).toBe(false);
+    expect(local.isValid()).toBe(true);
+    middle.mount('posts', child);
+    expect(alternative.isValid()).toBe(false);
+  });
+
+  it('preserves identity across unrelated changes and rejects invalid paths', () => {
+    const root = createCommandRegistry(), child = createCommandRegistry();
+    child.register(command('x')); root.mount('child', child);
+    const captured = root.resolve('child.x')!;
+    const notify = vi.fn(); root.subscribe(notify);
+    const remove = root.register(command('other'));
+    expect(captured.isValid()).toBe(true);
+    remove();
+    expect(captured.isValid()).toBe(true);
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(root.resolve('')).toBeUndefined();
+    expect(root.resolve('child')).toBeUndefined();
+    expect(root.resolve('child.x.extra')).toBeUndefined();
+    expect(root.resolve('child..x')).toBeUndefined();
+    expect(root.list().map(item => item.id)).toEqual(['child.x']);
+  });
+
+  it('keeps batches atomic and invalidates each captured registration on cleanup', () => {
+    const registry = createCommandRegistry();
+    registry.register(command('existing'));
+    const existing = registry.resolve('existing')!;
+    const listener = vi.fn(); registry.subscribe(listener);
+    expect(() => registry.registerMany([command('new'), command('existing')])).toThrow();
+    expect(listener).not.toHaveBeenCalled();
+    expect(existing.isValid()).toBe(true);
+    expect(registry.resolve('new')).toBeUndefined();
+    const remove = registry.registerMany([command('a'), command('b')]);
+    const a = registry.resolve('a')!, b = registry.resolve('b')!;
+    remove(); remove();
+    expect(a.isValid()).toBe(false);
+    expect(b.isValid()).toBe(false);
+    registry.register(command('a'));
+    expect(a.isValid()).toBe(false);
+    expect(existing.isValid()).toBe(true);
+  });
+
+  it('does not interpret nested workflow commands as registry entries', () => {
+    const registry = createCommandRegistry();
+    registry.register({ id: 'manage', label: 'Manage', commands: [command('archive')] });
+    expect(registry.resolve('manage')?.isValid()).toBe(true);
+    expect(registry.resolve('manage.archive')).toBeUndefined();
+    expect(registry.get('manage')?.commands?.[0].id).toBe('archive');
+  });
+});

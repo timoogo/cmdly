@@ -171,4 +171,32 @@ Local command IDs and namespaces must be nonempty, non-whitespace strings withou
 
 `list()` returns a fresh array of shallow command copies in insertion order, expanding each mount in place recursively. Removing and adding an entry moves it to the end. `get()` also returns a shallow copy. The registry captures top-level command properties on registration; nested workflow objects and functions remain shared and should be treated as immutable. Nested `commands` are workflow menus, not registry entries, and are not qualified individually.
 
-Registries do not automatically update a command engine or provide React hooks. Consumers may explicitly pass `registry.list()` to an engine and manage updates themselves. Shared/runtime context and reactive engine and React integration are reserved for later work.
+Registries do not automatically update a command engine or provide React hooks. Shared/runtime context and reactive engine and React integration are reserved for later work.
+
+### Registration identity
+
+`registry.resolve(qualifiedId)` returns `{ command, qualifiedId, isValid() }` for a registered command, or `undefined` if the path does not exist. The command is a shallow copy, as with `get()`. `isValid()` checks the original registration and every mount in the captured path. Removing and re-registering a command, or unmounting and remounting a registry under the same name, cannot reactivate an old resolution. Other paths to the same child are independent. Unrelated changes do not invalidate a resolution.
+
+Resolution covers registry entries and mounts only. Nested workflow commands in a command's `commands` array are not separate registrations and cannot be addressed by `resolve()`; resolving nested workflows and carrying provenance into the engine are reserved for a later lot. Resolution does not prevent a captured command from being executed directly, and the engine's existing behavior is unchanged.
+
+
+### Using a registry with the engine
+
+```ts
+import { createCommandEngine, createCommandRegistry } from 'cmdly/core';
+
+const registry = createCommandRegistry();
+const remove = registry.register({ id: 'save', label: 'Save', run: () => save() });
+const engine = createCommandEngine({ registry });
+// Later, after registering other commands:
+engine.refreshRegistry();
+// When finished:
+engine.destroy();
+remove();
+```
+
+Supply either `registry` or `commands`, not both. A registry engine reads an ordered snapshot on creation and again on `refreshRegistry()`; it does not subscribe automatically. New or removed entries appear in its root menu after refresh. `setCommands()` and `setOptions({ commands })` throw before changing state on a registry engine; use `refreshRegistry()` to update its commands. Other `setOptions` fields remain available. Refreshing does not replace the definition of an active registry workflow, even when an entry with the same ID exists. Leave that workflow and select again to use the new entry.
+
+Registry commands retain the identity of their root registration and all mounts while navigating nested workflows. Navigation, option loading, and answer collection can continue after invalidation, but a new `run` is refused with `CommandUnavailableError` in the engine snapshot and reported to `onError`. This also applies after re-registration or remounting with the same name. An invocation that has already called `run` is not cancelled by invalidation. Engines have independent snapshots and concurrent invocations retain their own selected identities. `destroy()` still ignores pending results as before.
+
+Ordinary `Command[]` retains its existing behavior: an active command removed by `setCommands()` can still run. Passing `registry.list()` as a plain array does not attach registry provenance; use `{ registry }` for validity checks. Nested command IDs remain workflow-local, not registry paths.

@@ -224,3 +224,14 @@ describe('command engine', () => {
   });
 
 });
+
+it('retains an active plain-array command removed by setCommands', async () => {
+  const run = vi.fn();
+  const engine = createCommandEngine({ commands: [{ id: 'active', label: 'Active', finalStep: { timing: 'before', closeOnComplete: false }, run }] });
+  engine.select(0);
+  engine.setCommands([]);
+  expect(engine.getSnapshot().command?.id).toBe('active');
+  await engine.execute();
+  expect(run).toHaveBeenCalledOnce();
+  engine.destroy();
+});

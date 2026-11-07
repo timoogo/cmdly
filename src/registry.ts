@@ -1,10 +1,17 @@
 import type { Command } from './core.js';
 
+export type ResolvedCommand = {
+  readonly command: Command;
+  readonly qualifiedId: string;
+  isValid(): boolean;
+};
+
 export type CommandRegistry = {
   register(command: Command): () => void;
   registerMany(commands: readonly Command[]): () => void;
   mount(namespace: string, registry: CommandRegistry): () => void;
   get(id: string): Command | undefined;
+  resolve(id: string): ResolvedCommand | undefined;
   list(): Command[];
   subscribe(listener: () => void): () => void;
 };
@@ -90,6 +97,26 @@ export function createCommandRegistry(): CommandRegistry {
       };
     },
     get(id) { return commands(state).find(command => command.id === id); },
+    resolve(id) {
+      const parts = id.split('.');
+      const path: { state: State; id: string; entry: Entry }[] = [];
+      let current = state;
+      for (let i = 0; i < parts.length; i++) {
+        const name = parts[i], entry = current.entries.get(name);
+        if (!entry) return undefined;
+        path.push({ state: current, id: name, entry });
+        if ('command' in entry) {
+          if (i !== parts.length - 1) return undefined;
+          return {
+            command: { ...entry.command, id },
+            qualifiedId: id,
+            isValid: () => path.every(part => part.state.entries.get(part.id) === part.entry),
+          };
+        }
+        current = entry.registry;
+      }
+      return undefined;
+    },
     list() { return commands(state); },
     subscribe(listener) { state.listeners.add(listener); return () => { state.listeners.delete(listener); }; },
   };

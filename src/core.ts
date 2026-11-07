@@ -1,5 +1,6 @@
+import type { CommandRegistry, ResolvedCommand } from './registry.js';
 export { createCommandRegistry } from './registry.js';
-export type { CommandRegistry } from './registry.js';
+export type { CommandRegistry, ResolvedCommand } from './registry.js';
 
 export type Answers = Record<string, string>;
 export type Option = { value: string; label: string };
@@ -23,10 +24,34 @@ export type EngineCallbacks = { onNavigate?: (snapshot: EngineSnapshot) => void;
 export type EngineStrategies = { allowTransition?: (from: EngineSnapshot, action: string) => boolean; closeOnComplete?: (command: Command, answers: Answers, finalStep: FinalStep | null) => boolean };
 export type EnginePlugin = { setup: (engine: CommandEngine) => void | (() => void) };
 export type EngineOptions = { commands: Command[]; defaults?: CommandSettings; callbacks?: EngineCallbacks; strategies?: EngineStrategies; plugins?: EnginePlugin[] };
+export type RegistryEngineOptions = Omit<EngineOptions, 'commands'> & { registry: CommandRegistry; commands?: never };
+export class CommandUnavailableError extends Error {
+  constructor(readonly qualifiedId: string) { super(`Registry command is no longer available: ${qualifiedId}`); this.name = 'CommandUnavailableError'; }
+}
 export type CommandEngine = { getSnapshot: () => EngineSnapshot; subscribe: (listener: () => void) => () => void; setCommands: (commands: Command[]) => void; setOptions: (options: Partial<Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies'>>) => void; select: (index: number) => void; back: () => void; forward: () => void; setQuery: (query: string) => void; setActive: (index: number) => void; retry: () => void; execute: () => Promise<void>; close: () => void; destroy: () => void };
 
+export type RegistryCommandEngine = CommandEngine & { refreshRegistry: () => void };
+
 /** Creates a framework-independent workflow store. Async operations are ignored after navigation or destruction. */
-export function createCommandEngine(config: EngineOptions): CommandEngine {
+export function createCommandEngine(input: RegistryEngineOptions): RegistryCommandEngine;
+export function createCommandEngine(input: EngineOptions): CommandEngine;
+export function createCommandEngine(input: EngineOptions | RegistryEngineOptions): RegistryCommandEngine {
+  if ('registry' in input && input.registry && 'commands' in input) throw new Error('Provide commands or registry, not both');
+  const registry = 'registry' in input ? input.registry : undefined;
+  const provenance = new WeakMap<Command, ResolvedCommand>();
+  const readRegistry = (): Command[] => {
+    if (!registry) throw new Error('Engine has no registry');
+    const resolved = registry.list().map(item => {
+      const entry = registry.resolve(item.id);
+      if (!entry || !entry.isValid()) throw new Error(`Registry changed while reading: ${item.id}`);
+      return entry;
+    });
+    if (resolved.some(entry => !entry.isValid())) throw new Error('Registry changed while reading');
+    for (const entry of resolved) provenance.set(entry.command, entry);
+    return resolved.map(entry => entry.command);
+  };
+  let config: EngineOptions = { ...input, commands: registry ? readRegistry() : (input as EngineOptions).commands };
+
   let path: Level[] = [], command: Command | null = null, frames: Frame[] = [];
   let phase: Position['phase'] = 'menu', finalAnswers: Answers = {}, query = '', active = 0;
   let options: Option[] = [], loading = false, running = false, error: unknown = null, loadFailed = false;
@@ -123,8 +148,11 @@ export function createCommandEngine(config: EngineOptions): CommandEngine {
       publish();
       if (destroyed || token !== generation) return;
       const appliesBefore = !!final && final.timing !== 'after' && finalVisible;
+      const origin = provenance.get(path[0]?.command ?? selected);
+      if (origin && !origin.isValid()) throw new CommandUnavailableError(origin.qualifiedId);
       config.callbacks?.onExecute?.(selected, answers);
       if (destroyed || token !== generation) return;
+      if (origin && !origin.isValid()) throw new CommandUnavailableError(origin.qualifiedId);
       const value = await selected.run!(answers);
       if (destroyed || token !== generation) return;
       running = false; status = 'success'; result = value; phase = 'final';
@@ -170,10 +198,10 @@ export function createCommandEngine(config: EngineOptions): CommandEngine {
     }
     if (!command) { const candidate = target.command ?? target.path[path.length]?.command; if (!candidate || !snapshot.items.includes(candidate)) return; const answers = { ...path[path.length - 1]?.answers }; if ((candidate.backBehavior ?? behavior()) === 'reset' || (!candidate.commands && !candidate.steps?.some(item => !item.when || item.when(answers)))) return; forward.pop(); command = candidate; enter(candidate, answers, 0, []); }
   };
-  const setOptions: CommandEngine['setOptions'] = values => {
+  const updateOptions: CommandEngine['setOptions'] = values => {
     if (destroyed) return;
     config = { ...config, ...values };
-    if (values.commands) {
+    if (values.commands && !provenance.has(path[0]?.command ?? command!)) {
       let candidates = values.commands;
       path = path.map(level => { const replacement = candidates.find(item => item.id === level.command.id) ?? level.command; candidates = replacement.commands ?? []; return replacement === level.command ? level : { ...level, command: replacement }; });
       if (command) { const replacement = candidates.find(item => item.id === command!.id); if (replacement) { command = replacement; const step = currentStep(); if (step && Array.isArray(step.options)) options = step.options; } }
@@ -182,9 +210,13 @@ export function createCommandEngine(config: EngineOptions): CommandEngine {
     const sameItems = next.items.length === snapshot.items.length && next.items.every((item, index) => { const old = snapshot.items[index]; return item.label === old.label && ('id' in item ? 'id' in old && item.id === old.id : 'value' in old && item.value === old.value); });
     const previousFinal = snapshot.finalStep, nextFinal = next.finalStep;
     const sameFinal = previousFinal === nextFinal || (!!previousFinal && !!nextFinal && previousFinal.timing === nextFinal.timing && previousFinal.closeOnComplete === nextFinal.closeOnComplete && previousFinal.render === nextFinal.render && JSON.stringify(previousFinal.fields) === JSON.stringify(nextFinal.fields));
-    if (!sameItems || !sameFinal || JSON.stringify(next.summary) !== JSON.stringify(snapshot.summary) || next.command?.label !== snapshot.command?.label || next.step?.label !== snapshot.step?.label || next.arrowNavigation !== snapshot.arrowNavigation || next.maxVisibleItems !== snapshot.maxVisibleItems || JSON.stringify(next.progress) !== JSON.stringify(snapshot.progress)) publish();
+    if ((values.commands && !command && !path.length) || !sameItems || !sameFinal || JSON.stringify(next.summary) !== JSON.stringify(snapshot.summary) || next.command?.label !== snapshot.command?.label || next.step?.label !== snapshot.step?.label || next.arrowNavigation !== snapshot.arrowNavigation || next.maxVisibleItems !== snapshot.maxVisibleItems || JSON.stringify(next.progress) !== JSON.stringify(snapshot.progress)) publish();
   };
-  const engine: CommandEngine = { getSnapshot: () => snapshot, subscribe: listener => { if (destroyed) return () => {}; listeners.add(listener); return () => listeners.delete(listener); }, setCommands: commands => setOptions({ commands }), setOptions, select, back, forward: goForward, setQuery: value => { if (!allowed('query') || query === value) return; query = value; active = 0; publish(); }, setActive: value => { if (!allowed('active')) return; const next = Math.max(0, Math.min(value, snapshot.items.length - 1)); if (next !== active) { active = next; publish(); } }, retry: () => { if (!allowed('retry')) return; if (phase === 'final') void execute(); else { load(); publish(); } }, execute, close, destroy: () => { if (destroyed) return; generation++; destroyed = true; let firstError: unknown; let failed = false; for (const cleanup of cleanups.reverse()) { try { cleanup(); } catch (err) { if (!failed) firstError = err; failed = true; } } listeners.clear(); saved.clear(); if (failed) throw firstError; } };
+  const setOptions: CommandEngine['setOptions'] = values => {
+    if (registry && 'commands' in values) throw new Error('Cannot set commands on a registry engine; use refreshRegistry()');
+    updateOptions(values);
+  };
+  const engine: RegistryCommandEngine = { refreshRegistry: () => { if (!destroyed) updateOptions({ commands: readRegistry() }); }, getSnapshot: () => snapshot, subscribe: listener => { if (destroyed) return () => {}; listeners.add(listener); return () => listeners.delete(listener); }, setCommands: commands => setOptions({ commands }), setOptions, select, back, forward: goForward, setQuery: value => { if (!allowed('query') || query === value) return; query = value; active = 0; publish(); }, setActive: value => { if (!allowed('active')) return; const next = Math.max(0, Math.min(value, snapshot.items.length - 1)); if (next !== active) { active = next; publish(); } }, retry: () => { if (!allowed('retry')) return; if (phase === 'final') void execute(); else { load(); publish(); } }, execute, close, destroy: () => { if (destroyed) return; generation++; destroyed = true; let firstError: unknown; let failed = false; for (const cleanup of cleanups.reverse()) { try { cleanup(); } catch (err) { if (!failed) firstError = err; failed = true; } } listeners.clear(); saved.clear(); if (failed) throw firstError; } };
   try { for (const plugin of config.plugins ?? []) { const cleanup = plugin.setup(engine); if (cleanup) cleanups.push(cleanup); } } catch (err) { try { engine.destroy(); } catch (cleanupError) { throw new Error(`Plugin setup failed (${String(err)}); cleanup also failed (${String(cleanupError)})`); } throw err; }
   return engine;
 }
