@@ -1,0 +1,15 @@
+---
+title: "Your First Command"
+description: "Run a simple command."
+---
+
+Define a `Command`, create an engine, then select a visible item. Selection indexes refer to `snapshot.items`, including any search filtering.
+```ts
+import { createCommandEngine, type Command } from '@cmdly/core';
+
+const hello: Command = { id: 'hello', label: 'Say hello', run: () => console.log('Hello!') };
+const engine = createCommandEngine({ commands: [hello] });
+engine.select(0);
+// When finished: engine.destroy();
+```
+A leaf without a final step begins execution after it is selected. Errors are reflected in the snapshot. A successful command closes by default, clearing its result; see [execution](/docs/core/execution) to retain a result.

@@ -1,0 +1,8 @@
+---
+title: "Discovery and Subscriptions"
+description: "Inspect entries and react to changes."
+---
+
+`get(id)` returns a contextual command or `undefined`; `list()` returns commands with qualified IDs; `resolve(id)` returns the command, `qualifiedId`, owning `shared` value, runtime requirement and `isValid()`. Discovery returns TypeScript views whose owner context must be supplied for direct calls.
+
+`subscribe(listener)` returns an unsubscribe function. Changes notify the registry and its ancestors. Engines do not subscribe automatically: call `engine.refreshRegistry()` after changes to update their command list.

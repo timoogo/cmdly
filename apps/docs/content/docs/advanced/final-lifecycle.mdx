@@ -1,0 +1,8 @@
+---
+title: "Final Steps and Lifecycle"
+description: "Review answers before or after execution."
+---
+
+A `finalStep` can specify `timing: 'before' | 'after'`, `when`, `fields`, `closeOnComplete`, and `render`. Final settings are inherited by descendants unless overridden or disabled with `false`. A before step can call `execute()`; an after step runs first and then shows its result.
+
+The engine owns no UI. Destroy it when its owner ends, and do not reuse an engine after close. Plugins are cleaned up on destroy.

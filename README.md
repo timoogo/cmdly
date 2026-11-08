@@ -1,16 +1,21 @@
 # Cmdly
 
-A headless command workflow engine with a React palette adapter. The engine is available from `cmdly/core` without React or browser globals. The React adapter renders semantic HTML without a styling framework; style its elements in your application. React and React DOM 18 or 19 are peer dependencies for the adapter.
+[Documentation source](apps/docs/content/docs/index.mdx) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [GitHub](https://github.com/timoogo/cmdly)
+
+A headless command workflow engine with a React palette adapter. The engine is available from `@cmdly/core` without React or browser globals. The React adapter renders semantic HTML without a styling framework; style its elements in your application. React 18 or 19 is a peer dependency for the adapter.
 
 ## Installation
 
-Install the package from this directory while developing: `npm install ../cmdly`. Once distributed, install it with `npm install cmdly`.
+The previous `cmdly/core` import is now `@cmdly/core`; import React APIs from `@cmdly/react` instead of `cmdly`.
+
+
+Install the packages with `pnpm add @cmdly/core @cmdly/react` after publication. Within this repository, run `pnpm install` from the root.
 
 ## Quick start
 
 ```tsx
 import { useState } from 'react';
-import { CommandPalette, type Command } from 'cmdly';
+import { CommandPalette, type Command } from '@cmdly/react';
 
 const commands: Command[] = [
   { id: 'hello', label: 'Say hello', run: () => alert('Hello!') },
@@ -44,7 +49,7 @@ The object API keeps a command and its workflow together and makes simple comman
 
 ## Local development
 
-Run `npm install`, `npm test`, `npm run typecheck`, and `npm run build` inside `cmdly/`.
+Run `pnpm install`, `pnpm test`, `pnpm typecheck`, and `pnpm build` from the repository root.
 
 ## Limitations
 
@@ -79,10 +84,10 @@ Set `progress: 'local'` or `'global'` on a command (inherited by children, overr
 
 ## Framework-independent engine
 
-Import `createCommandEngine` from `cmdly/core` to drive a workflow without React or a browser. `getSnapshot()` returns a stable snapshot until the next change; `subscribe` returns an unsubscribe function. The consumer owns the engine lifecycle and calls `destroy()` when finished.
+Import `createCommandEngine` from `@cmdly/core` to drive a workflow without React or a browser. `getSnapshot()` returns a stable snapshot until the next change; `subscribe` returns an unsubscribe function. The consumer owns the engine lifecycle and calls `destroy()` when finished.
 
 ```ts
-import { createCommandEngine } from 'cmdly/core';
+import { createCommandEngine } from '@cmdly/core';
 
 const engine = createCommandEngine({
   commands: [{ id: 'hello', label: 'Hello', run: answers => console.log(answers) }],
@@ -121,7 +126,7 @@ const commands = [{
 The default palette displays the summary and standard controls. Supply `render` to replace the final-step content. The context provides `answers`, `summary`, `status`, `error`, `result`, `execute`, `back`, and `close`:
 
 ```tsx
-import type { FinalContext } from 'cmdly';
+import type { FinalContext } from '@cmdly/react';
 
 const renderConfirmation = (context: FinalContext) => (
   <section>
@@ -144,14 +149,14 @@ For a fully custom React interface, `useCommandEngine(engine)` returns `{ state,
 
 Optional callbacks `onNavigate`, `onExecute`, `onError`, and `onClose` observe the engine. `strategies.allowTransition(snapshot, action)` can reject an action; `strategies.closeOnComplete(command, answers, finalStep)` overrides the default closing decision. Plugins are optional: each `{ setup(engine) { ...; return cleanup; } }` is installed in array order, and cleanup functions run in reverse order on destruction. Setup errors propagate after cleaning up previously installed plugins. Only these two strategy hooks are currently provided; navigation and history algorithms are not replaceable wholesale. Callback and strategy functions should not throw unless their caller is prepared to handle that error.
 
-The previous `CommandPalette` API remains available from `cmdly`; existing command objects remain valid. Migrate incrementally by importing the engine from `cmdly/core` only where direct control is needed.
+The previous `CommandPalette` API remains available from `@cmdly/react`; existing command objects remain valid. Migrate incrementally by importing the engine from `@cmdly/core` only where direct control is needed.
 
 ## Composable command registries
 
-`createCommandRegistry()` from `cmdly/core` creates a headless registry. It can hold application-wide commands and mount temporary registries for a page, component, or selection:
+`createCommandRegistry()` from `@cmdly/core` creates a headless registry. It can hold application-wide commands and mount temporary registries for a page, component, or selection:
 
 ```ts
-import { createCommandRegistry } from 'cmdly/core';
+import { createCommandRegistry } from '@cmdly/core';
 
 const global = createCommandRegistry();
 const posts = createCommandRegistry();
@@ -183,7 +188,7 @@ Resolution covers registry entries and mounts only. Nested workflow commands in 
 ### Using a registry with the engine
 
 ```ts
-import { createCommandEngine, createCommandRegistry } from 'cmdly/core';
+import { createCommandEngine, createCommandRegistry } from '@cmdly/core';
 
 const registry = createCommandRegistry();
 const remove = registry.register({ id: 'save', label: 'Save', run: () => save() });
@@ -242,10 +247,10 @@ A registry with no runtime requirement defaults to `runtimeRequired: false`; for
 
 A registry command and its nested commands receive the owner's `shared` value and the session `runtime` in `when`, step `when` and `options`, final-step `when` and `render`, and `run`. `render` keeps its existing final-screen argument and receives the command context as its second argument. Options can return an array or a promise. Treat both supplied values as immutable.
 
-The following example is also checked by the TypeScript test in `src/context-extension-example.test.ts`:
+The following example is also checked by the TypeScript test in `packages/core/src/context-extension-example.test.ts`:
 
 ```ts
-import { createCommandEngine, createCommandRegistry } from 'cmdly/core';
+import { createCommandEngine, createCommandRegistry } from '@cmdly/core';
 
 type Runtime = { userId: string };
 type Shared = {
@@ -295,3 +300,7 @@ Engine callbacks keep their existing arguments and receive an optional context a
 For registry engines, predicate, provider and options failures are reported in the snapshot and to `onError`; an evaluation failure does not authorize a command. Historical predicates retain their existing synchronous error behavior. Engine callbacks and plugin setup are synchronous and their returned promises are not awaited. For ordinary `Command[]`, existing one-argument predicates, options and `run`, callbacks, strategies and plugin setup remain valid. The engine remains framework-independent; `useCommandEngine()` subscribes to its snapshot and actions without creating a separate context lifecycle.
 
 Registry engines expose `CommandView` in snapshots, callbacks, strategies, and plugins. It contains the command's display, step, and navigation fields but does not expose `run`; nested commands are also views. These are TypeScript views of the existing objects, not runtime copies or access controls. Historical engines created with `commands: Command[]` retain `Command` in those positions. `useCommandEngine` preserves the corresponding snapshot and action types for both engine kinds. Direct calls to commands returned by registry discovery bypass engine runtime and provenance checks.
+
+## License
+
+Cmdly is released under the [MIT License](LICENSE).

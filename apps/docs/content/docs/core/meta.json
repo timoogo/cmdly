@@ -1,0 +1,10 @@
+{
+  "title": "Core",
+  "pages": [
+    "commands-steps",
+    "navigation",
+    "execution",
+    "callbacks-strategies-plugins",
+    "errors"
+  ]
+}

@@ -1,0 +1,24 @@
+---
+title: "Context, Runtime and Sessions"
+description: "Pass shared data and runtime values safely."
+---
+
+`shared` belongs to the owning registry. A root can mount children with different shared contexts. `runtime` comes from the engine provider or an explicit execution option; the command receives both values.
+
+A registry with `runtimeRequired: true` requires a provider and rejects `undefined` at runtime. Values such as `false`, `0`, and `null` are allowed when the declared type permits them.
+```ts
+import { createCommandEngine, createCommandRegistry } from '@cmdly/core';
+
+type Shared = { workspace: string };
+type Runtime = { userId: string };
+const registry = createCommandRegistry<Shared, Runtime>({
+  shared: { workspace: 'Design' }, runtimeRequired: true,
+});
+registry.register({
+  id: 'publish', label: 'Publish',
+  run: (_answers, { shared, runtime }) => console.log(shared.workspace, runtime.userId),
+});
+const engine = createCommandEngine({ registry, runtime: () => ({ userId: 'user-1' }) });
+engine.select(0);
+```
+Contextual predicates and loaders can prepare a session before execution. Once a contextual decision uses a runtime, it cannot be replaced with a different value. Back and forward preserve the session; returning to the root and selecting a new workflow starts a new one. Unmounting or unregistering invalidates provenance, including pending work.

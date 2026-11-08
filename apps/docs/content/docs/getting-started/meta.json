@@ -1,0 +1,10 @@
+{
+  "title": "Getting Started",
+  "pages": [
+    "installation",
+    "quick-start",
+    "concepts",
+    "first-command",
+    "first-workflow"
+  ]
+}

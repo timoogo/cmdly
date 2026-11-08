@@ -1,0 +1,10 @@
+---
+title: "React Installation"
+description: "Use Cmdly with React 18 or 19."
+---
+
+Install both packages: `pnpm add @cmdly/core @cmdly/react`. The React adapter re-exports the core types and functions, but importing headless APIs from `@cmdly/core` makes the boundary explicit.
+
+`CommandPalette` renders semantic, unstyled HTML for legacy `commands`. It does not accept a registry; use `useCommandEngine` for a registry-backed custom UI.
+
+The palette displays error messages verbatim: use messages safe for end users. It calls `onOpenChange(false)` after closing; the host must update `open`. Escape moves back before closing, and the host is responsible for page-level modal isolation.

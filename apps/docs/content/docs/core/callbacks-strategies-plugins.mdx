@@ -1,0 +1,12 @@
+---
+title: "Callbacks, Strategies and Plugins"
+description: "Observe and customize engine behavior."
+---
+
+Engine options accept `callbacks` (`onNavigate`, `onExecute`, `onError`, `onClose`), `strategies` (`allowTransition`, `closeOnComplete`), and `plugins` with `setup(engine)`. A setup may return a cleanup function; cleanup runs in reverse order on destruction.
+
+Callbacks and plugin setup are synchronous; returned promises are not awaited. Registry callbacks can receive an optional context as the final argument. Context can be absent before a command is identified or runtime is available.
+
+`setOptions()` updates callbacks, strategies, defaults and legacy commands. Core engine plugins are installed when the engine is created. `CommandPalette` installs its plugins in an effect after mount and reinstalls them when the array changes; keep that array stable.
+
+`allowTransition` receives the action strings `select`, `back`, `forward`, `query`, `active`, `retry`, `execute`, and `close`.

@@ -1,0 +1,12 @@
+---
+title: "Navigation"
+description: "Move between menus, steps and prior states."
+---
+
+Use `select(index)`, `back()`, `forward()`, `setQuery(value)` and `setActive(index)`. `canBack` and `canForward` describe available directions. Forward navigation only revisits compatible prior states; it never executes a command.
+
+`backBehavior` can be `preserve`, `reset`, or `smart` (the default). Smart mode invalidates later answers when a selection changes. `progress` can be `local`, `global`, or `false`; totals can be indeterminate while conditional paths remain unresolved.
+
+## Snapshot fields
+
+The snapshot includes `phase`, `command`, `menuLabel`, `step`, `answers`, `items`, `query`, `active`, `loading`, `running`, `error`, `loadFailed`, `progress`, `finalStep`, `summary`, `status`, `result`, `arrowNavigation`, `maxVisibleItems`, `canBack`, `canForward`, `closed`, and optional registry `context`. See the [core reference](/docs/api/core) for types.

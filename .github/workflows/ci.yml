@@ -1,4 +1,3 @@
-
 name: CI
 
 on:
@@ -13,48 +12,42 @@ permissions:
 
 jobs:
   validate:
-    name: Node ${{ matrix.node }} / React ${{ matrix.react }}
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [22, 24]
-        react: [18, 19]
-
+    timeout-minutes: 25
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+      - uses: actions/checkout@v7
         with:
-          version: 11.21.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24
           cache: pnpm
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Select React 18 dependencies
-        if: matrix.react == 18
-        run: |
-          pnpm add -D \
-            react@18 \
-            react-dom@18 \
-            @types/react@18 \
-            @types/react-dom@18
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Tests
-        run: pnpm test
-
-      - name: Build
+      - name: Build packages and applications
         run: pnpm build
-
+      - name: Typecheck packages and applications, including docs examples
+        run: pnpm -r --if-present typecheck
+      - name: Test core and React
+        run: pnpm --filter @cmdly/core test && pnpm --filter @cmdly/react test
+      - name: Test playground
+        run: pnpm --filter playground test
+      - name: Install Chromium
+        run: pnpm --filter @cmdly/docs exec playwright install --with-deps chromium
+      - name: Test documentation in browser
+        run: pnpm --filter @cmdly/docs test:browser
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-diagnostics
+          path: |
+            apps/docs/test-results/
+            apps/docs/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Check npm tarballs in an independent project
+        run: pnpm check:pack
+      - name: Check whitespace
+        run: git diff --check

@@ -1,31 +1,16 @@
 {
-  "name": "cmdly",
-  "version": "0.1.0",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./core": {
-      "types": "./dist/core.d.ts",
-      "import": "./dist/core.js"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "name": "cmdly-monorepo",
+  "private": true,
+  "packageManager": "pnpm@11.21.0",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
-  },
-  "peerDependencies": {
-    "react": "^18.0.0 || ^19.0.0",
-    "react-dom": "^18.0.0 || ^19.0.0"
+    "build": "pnpm -r --sort build",
+    "test": "pnpm --filter @cmdly/core build && pnpm --filter @cmdly/react build && pnpm -r --if-present test",
+    "typecheck": "pnpm --filter @cmdly/core build && pnpm --filter @cmdly/react build && pnpm -r --if-present typecheck",
+    "dev": "pnpm --filter playground dev",
+    "dev:docs": "pnpm --filter @cmdly/docs dev",
+    "build:docs": "pnpm --filter @cmdly/core build && pnpm --filter @cmdly/react build && pnpm --filter @cmdly/docs build",
+    "check:docs": "pnpm --filter @cmdly/core build && pnpm --filter @cmdly/react build && pnpm --filter @cmdly/docs typecheck",
+    "check:pack": "node scripts/check-packages.mjs"
   },
   "devDependencies": {
     "@testing-library/react": "^16.0.0",
@@ -36,7 +21,9 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.0",
+    "@cmdly/core": "workspace:*",
+    "@cmdly/react": "workspace:*"
   },
-  "packageManager": "pnpm@11.21.0"
+  "license": "MIT"
 }
