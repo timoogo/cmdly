@@ -1,11 +1,14 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { createCommandEngine } from './core.js';
-import type { Command, CommandEngine, EngineSnapshot, EngineOptions, FinalContext, WorkflowProgress } from './core.js';
+import type { Command, CommandView, CommandEngine, RegistryCommandEngine, RegistryRuntime, EngineSnapshot, EngineOptions, FinalContext, WorkflowProgress } from './core.js';
 export * from './core.js';
 
 /** Subscribe to a headless engine from React. The caller owns the engine's lifetime. */
-export function useCommandEngine(engine: CommandEngine): { state: EngineSnapshot; actions: CommandEngine } {
+export function useCommandEngine<TRuntime, TRuntimeRequired extends boolean>(engine: RegistryCommandEngine<TRuntime, TRuntimeRequired>): { state: EngineSnapshot<CommandView, RegistryRuntime<TRuntime>>; actions: RegistryCommandEngine<TRuntime, TRuntimeRequired> };
+export function useCommandEngine(engine: CommandEngine): { state: EngineSnapshot; actions: CommandEngine };
+export function useCommandEngine(input: unknown): unknown {
+  const engine = input as CommandEngine<CommandView>;
   return { state: useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot), actions: engine };
 }
 export type CommandPaletteProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & { open: boolean; onOpenChange: (open: boolean) => void; renderProgress?: (progress: WorkflowProgress) => ReactNode };

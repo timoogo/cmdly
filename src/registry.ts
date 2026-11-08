@@ -1,24 +1,31 @@
-import type { Command } from './core.js';
+import type { Command, ContextualCommand } from './core.js';
 
-export type ResolvedCommand = {
-  readonly command: Command;
+type ObservedRuntime<TRuntime> = [TRuntime] extends [undefined] ? unknown : TRuntime;
+
+export type ResolvedCommand<TRuntime = undefined> = {
+  readonly command: ContextualCommand<unknown, ObservedRuntime<TRuntime>>;
   readonly qualifiedId: string;
+  readonly shared: unknown;
+  readonly runtimeRequired: boolean;
   isValid(): boolean;
 };
 
-export type CommandRegistry = {
-  register(command: Command): () => void;
-  registerMany(commands: readonly Command[]): () => void;
-  mount(namespace: string, registry: CommandRegistry): () => void;
-  get(id: string): Command | undefined;
-  resolve(id: string): ResolvedCommand | undefined;
-  list(): Command[];
+declare const runtimeType: unique symbol;
+export type CommandRegistry<TShared = undefined, TRuntime = undefined, TRuntimeRequired extends boolean = boolean> = {
+  readonly [runtimeType]?: (runtime: TRuntime) => TRuntime;
+  readonly runtimeRequired: TRuntimeRequired;
+  register(command: ContextualCommand<TShared, TRuntime>): () => void;
+  registerMany(commands: readonly ContextualCommand<TShared, TRuntime>[]): () => void;
+  mount<TChild, TChildRuntime, TChildRequired extends boolean>(namespace: string, registry: CommandRegistry<TChild, TChildRuntime, TChildRequired> & ([TRuntime] extends [undefined] ? unknown : [Exclude<TRuntime, undefined>] extends [TChildRuntime] ? unknown : never)): () => void;
+  get(id: string): ContextualCommand<unknown, ObservedRuntime<TRuntime>> | undefined;
+  resolve(id: string): ResolvedCommand<TRuntime> | undefined;
+  list(): ContextualCommand<unknown, ObservedRuntime<TRuntime>>[];
   subscribe(listener: () => void): () => void;
 };
 
 type Entry = { command: Command } | { registry: State };
-type State = { entries: Map<string, Entry>; parents: Map<State, number>; listeners: Set<() => void> };
-const states = new WeakMap<CommandRegistry, State>();
+type State = { shared: unknown; runtimeRequired: boolean; entries: Map<string, Entry>; parents: Map<State, number>; listeners: Set<() => void> };
+const states = new WeakMap<object, State>();
 
 function segment(value: string, kind: string): void {
   if (typeof value !== 'string' || !value.trim() || value.includes('.')) throw new Error(`${kind} must be non-empty and contain no dots`);
@@ -58,16 +65,24 @@ function commands(state: State, prefix = ''): Command[] {
 }
 
 /** Creates a composable, framework-independent command registry. */
-export function createCommandRegistry(): CommandRegistry {
-  const state: State = { entries: new Map(), parents: new Map(), listeners: new Set() };
-  const registry: CommandRegistry = {
+export function createCommandRegistry<TShared>(options: { shared: TShared; runtimeRequired: true }): CommandRegistry<TShared, unknown, true>;
+export function createCommandRegistry<TShared, TRuntime extends {} | null>(options: { shared: TShared; runtimeRequired: true }): CommandRegistry<TShared, TRuntime, true>;
+export function createCommandRegistry<TShared, TRuntime>(options: { shared: TShared; runtimeRequired: true } & ([TRuntime] extends [undefined] ? never : unknown)): CommandRegistry<TShared, TRuntime, true>;
+export function createCommandRegistry<TShared, TRuntime = undefined>(options: { shared: TShared } & (undefined extends TRuntime ? { runtimeRequired?: false } : never)): CommandRegistry<TShared, TRuntime, false>;
+export function createCommandRegistry<TShared>(options: { shared: TShared; runtimeRequired?: boolean }): CommandRegistry<TShared, unknown, boolean>;
+export function createCommandRegistry<TShared, TRuntime = undefined>(options: { shared: TShared } & ([TRuntime] extends [undefined] ? { runtimeRequired?: false } : undefined extends TRuntime ? { runtimeRequired?: boolean } : { runtimeRequired: true })): CommandRegistry<TShared, TRuntime, boolean>;
+export function createCommandRegistry(): CommandRegistry<undefined, undefined, false>;
+export function createCommandRegistry<TShared = undefined, TRuntime = undefined>(options?: { shared: TShared; runtimeRequired?: boolean }): CommandRegistry<TShared, TRuntime, boolean> {
+  const state: State = { shared: options?.shared, runtimeRequired: options?.runtimeRequired === true, entries: new Map(), parents: new Map(), listeners: new Set() };
+  const registry: CommandRegistry<TShared, TRuntime, boolean> = {
+    runtimeRequired: state.runtimeRequired,
     register(command) { return registry.registerMany([command]); },
     registerMany(items) {
       const additions = new Map<string, Entry>();
       for (const command of items) {
         segment(command.id, 'Command id');
         if (state.entries.has(command.id) || additions.has(command.id)) throw new Error(`Duplicate registry entry: ${command.id}`);
-        additions.set(command.id, { command: { ...command } });
+        additions.set(command.id, { command: { ...command } as unknown as Command });
       }
       if (!additions.size) return () => {};
       for (const [id, entry] of additions) state.entries.set(id, entry);
@@ -96,7 +111,7 @@ export function createCommandRegistry(): CommandRegistry {
         publish(state);
       };
     },
-    get(id) { return commands(state).find(command => command.id === id); },
+    get(id) { return commands(state).find(command => command.id === id) as unknown as ContextualCommand<unknown, ObservedRuntime<TRuntime>> | undefined; },
     resolve(id) {
       const parts = id.split('.');
       const path: { state: State; id: string; entry: Entry }[] = [];
@@ -108,8 +123,10 @@ export function createCommandRegistry(): CommandRegistry {
         if ('command' in entry) {
           if (i !== parts.length - 1) return undefined;
           return {
-            command: { ...entry.command, id },
+            command: { ...entry.command, id } as unknown as ContextualCommand<unknown, ObservedRuntime<TRuntime>>,
             qualifiedId: id,
+            shared: current.shared,
+            runtimeRequired: current.runtimeRequired,
             isValid: () => path.every(part => part.state.entries.get(part.id) === part.entry),
           };
         }
@@ -117,7 +134,7 @@ export function createCommandRegistry(): CommandRegistry {
       }
       return undefined;
     },
-    list() { return commands(state); },
+    list() { return commands(state) as unknown as ContextualCommand<unknown, ObservedRuntime<TRuntime>>[]; },
     subscribe(listener) { state.listeners.add(listener); return () => { state.listeners.delete(listener); }; },
   };
   states.set(registry, state);
