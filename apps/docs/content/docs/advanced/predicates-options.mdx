@@ -1,0 +1,8 @@
+---
+title: "Predicates and Async Options"
+description: "Control conditional flows and loading."
+---
+
+`Command.when` controls visibility; `Step.when` controls whether a step is visited. Both receive current answers. A legacy `Step.options` loader returns a promise; contextual registry loaders can return an array or a promise and receive context.
+
+The engine ignores results that are obsolete after navigation, close or destruction. It does not abort the underlying request. Failed loads expose `loadFailed` and can be retried. Validate network responses in your loader.

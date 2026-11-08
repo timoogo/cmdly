@@ -1,0 +1,8 @@
+---
+title: "Typing and Composition Limits"
+description: "Understand heterogeneous registries."
+---
+
+Registry discovery may return commands from different owners. Their shared context is therefore `unknown`; narrow it before use. An untyped root can mount registries with different runtime requirements, so the caller must supply a runtime suitable for the selected command.
+
+`CommandView` and `StepView` restrict what consumers can safely call at the type level; they are not runtime security boundaries. Direct invocation of discovered commands bypasses engine provenance and runtime checks. Use the engine for execution.

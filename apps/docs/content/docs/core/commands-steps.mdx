@@ -1,0 +1,10 @@
+---
+title: "Commands and Steps"
+description: "Define commands, groups and workflow choices."
+---
+
+A `Command` has `id`, `label`, optional `when`, `steps`, and either `run(answers)` or nested `commands`. A command with children opens its children after its own steps; it does not execute its `run`.
+
+`Step.options` is an array or an asynchronous loader for legacy commands. `Step.when` and `Command.when` receive current answers. Registry commands also receive their owning context. Answers use step IDs as keys; a child step may shadow a parent ID.
+
+Use stable, unique IDs within each menu. Search matches labels, not IDs.

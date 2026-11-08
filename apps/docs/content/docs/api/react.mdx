@@ -1,0 +1,24 @@
+---
+title: "React API Reference"
+description: "Public React exports."
+---
+
+`useCommandEngine(engine)` returns `{ state, actions }`; overloads preserve registry runtime typing. It subscribes to the supplied engine and does not create or destroy it.
+
+`CommandPalette` takes `commands`, `open`, `onOpenChange`, optional defaults, callbacks, strategies, plugins and `renderProgress`. `CommandPaletteProps` is its public prop type. The adapter also re-exports the public core API.
+
+## Signatures
+
+```ts
+useCommandEngine<TRuntime, TRuntimeRequired extends boolean>(
+  engine: RegistryCommandEngine<TRuntime, TRuntimeRequired>,
+): { state: EngineSnapshot<CommandView, RegistryRuntime<TRuntime>>; actions: RegistryCommandEngine<TRuntime, TRuntimeRequired> };
+useCommandEngine(engine: CommandEngine): { state: EngineSnapshot; actions: CommandEngine };
+
+type CommandPaletteProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  renderProgress?: (progress: WorkflowProgress) => ReactNode;
+};
+function CommandPalette(props: CommandPaletteProps): React.JSX.Element | null;
+```

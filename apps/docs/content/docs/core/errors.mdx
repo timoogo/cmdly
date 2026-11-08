@@ -1,0 +1,8 @@
+---
+title: "Error Handling"
+description: "Understand errors and cancellation."
+---
+
+Inspect `snapshot.error`, `loadFailed`, and `status`; `retry()` retries a failed load, runtime preparation, or final execution as appropriate. Loader and execution failures can be reported through `onError` for both engine modes; registry-specific failures are also reported there. Historical command predicates retain their synchronous error behavior.
+
+An invalidated registry command can produce `CommandUnavailableError` with its `qualifiedId`. Asynchronous work already started is not aborted, but stale results are ignored after navigation, close, destruction, or invalidation.

@@ -1,0 +1,8 @@
+---
+title: "Fundamental Concepts"
+description: "Understand commands, snapshots and ownership."
+---
+
+A **command** has an `id`, `label` and a `run` function, or contains child `commands`. A **step** presents options and stores its selected string value under its ID. Answers flow from parent to child.
+
+The engine is a store: call `getSnapshot()` to read state and `subscribe()` to observe changes. A snapshot remains stable until an update. The caller owns the engine and calls `destroy()` when finished. Registries provide a separate composable command source.

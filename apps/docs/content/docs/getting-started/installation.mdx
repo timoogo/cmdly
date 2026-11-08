@@ -1,0 +1,12 @@
+---
+title: "Installation"
+description: "Install the core and React packages."
+---
+
+```sh
+pnpm add @cmdly/core @cmdly/react
+```
+
+For headless use, install only `@cmdly/core`. The React adapter requires React 18 or 19 as a peer. Both packages are ESM-only. The packages are planned for npm; verify availability before installing a release.
+
+Earlier imports from `cmdly/core` become `@cmdly/core`; imports from `cmdly` become `@cmdly/react`.

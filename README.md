@@ -1,16 +1,21 @@
 # Cmdly
 
-A headless command workflow engine with a React palette adapter. The engine is available from `cmdly/core` without React or browser globals. The React adapter renders semantic HTML without a styling framework; style its elements in your application. React and React DOM 18 or 19 are peer dependencies for the adapter.
+[Documentation source](apps/docs/content/docs/index.mdx) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [GitHub](https://github.com/timoogo/cmdly)
+
+A headless command workflow engine with a React palette adapter. The engine is available from `@cmdly/core` without React or browser globals. The React adapter renders semantic HTML without a styling framework; style its elements in your application. React 18 or 19 is a peer dependency for the adapter.
 
 ## Installation
 
-Install the package from this directory while developing: `npm install ../cmdly`. Once distributed, install it with `npm install cmdly`.
+The previous `cmdly/core` import is now `@cmdly/core`; import React APIs from `@cmdly/react` instead of `cmdly`.
+
+
+Install the packages with `pnpm add @cmdly/core @cmdly/react` after publication. Within this repository, run `pnpm install` from the root.
 
 ## Quick start
 
 ```tsx
 import { useState } from 'react';
-import { CommandPalette, type Command } from 'cmdly';
+import { CommandPalette, type Command } from '@cmdly/react';
 
 const commands: Command[] = [
   { id: 'hello', label: 'Say hello', run: () => alert('Hello!') },
@@ -44,7 +49,7 @@ The object API keeps a command and its workflow together and makes simple comman
 
 ## Local development
 
-Run `npm install`, `npm test`, `npm run typecheck`, and `npm run build` inside `cmdly/`.
+Run `pnpm install`, `pnpm test`, `pnpm typecheck`, and `pnpm build` from the repository root.
 
 ## Limitations
 
@@ -79,10 +84,10 @@ Set `progress: 'local'` or `'global'` on a command (inherited by children, overr
 
 ## Framework-independent engine
 
-Import `createCommandEngine` from `cmdly/core` to drive a workflow without React or a browser. `getSnapshot()` returns a stable snapshot until the next change; `subscribe` returns an unsubscribe function. The consumer owns the engine lifecycle and calls `destroy()` when finished.
+Import `createCommandEngine` from `@cmdly/core` to drive a workflow without React or a browser. `getSnapshot()` returns a stable snapshot until the next change; `subscribe` returns an unsubscribe function. The consumer owns the engine lifecycle and calls `destroy()` when finished.
 
 ```ts
-import { createCommandEngine } from 'cmdly/core';
+import { createCommandEngine } from '@cmdly/core';
 
 const engine = createCommandEngine({
   commands: [{ id: 'hello', label: 'Hello', run: answers => console.log(answers) }],
@@ -121,7 +126,7 @@ const commands = [{
 The default palette displays the summary and standard controls. Supply `render` to replace the final-step content. The context provides `answers`, `summary`, `status`, `error`, `result`, `execute`, `back`, and `close`:
 
 ```tsx
-import type { FinalContext } from 'cmdly';
+import type { FinalContext } from '@cmdly/react';
 
 const renderConfirmation = (context: FinalContext) => (
   <section>
@@ -144,4 +149,158 @@ For a fully custom React interface, `useCommandEngine(engine)` returns `{ state,
 
 Optional callbacks `onNavigate`, `onExecute`, `onError`, and `onClose` observe the engine. `strategies.allowTransition(snapshot, action)` can reject an action; `strategies.closeOnComplete(command, answers, finalStep)` overrides the default closing decision. Plugins are optional: each `{ setup(engine) { ...; return cleanup; } }` is installed in array order, and cleanup functions run in reverse order on destruction. Setup errors propagate after cleaning up previously installed plugins. Only these two strategy hooks are currently provided; navigation and history algorithms are not replaceable wholesale. Callback and strategy functions should not throw unless their caller is prepared to handle that error.
 
-The previous `CommandPalette` API remains available from `cmdly`; existing command objects remain valid. Migrate incrementally by importing the engine from `cmdly/core` only where direct control is needed.
+The previous `CommandPalette` API remains available from `@cmdly/react`; existing command objects remain valid. Migrate incrementally by importing the engine from `@cmdly/core` only where direct control is needed.
+
+## Composable command registries
+
+`createCommandRegistry()` from `@cmdly/core` creates a headless registry. It can hold application-wide commands and mount temporary registries for a page, component, or selection:
+
+```ts
+import { createCommandRegistry } from '@cmdly/core';
+
+const global = createCommandRegistry();
+const posts = createCommandRegistry();
+const removeCreate = posts.register({ id: 'create', label: 'Create post', run: () => {} });
+const unmountPosts = global.mount('posts', posts);
+const unsubscribe = global.subscribe(() => console.log(global.list()));
+global.get('posts.create');
+// When the context ends:
+unmountPosts();
+removeCreate();
+unsubscribe();
+```
+
+`registerMany(commands)` validates the entire batch before adding it and returns one cleanup. Registration and mount cleanups are idempotent and cannot remove a later entry. `subscribe(listener)` returns an idempotent unsubscribe. A successful nonempty change notifies the changed registry and each ancestor once, including when a child is mounted more than once. Listeners run synchronously; all affected listeners are called even if one throws, and the first error is rethrown after the change has committed. Listeners should not throw, especially during registration or mounting, because an exception prevents the cleanup function from being returned.
+
+Local command IDs and namespaces must be nonempty, non-whitespace strings without dots. Dots separate namespace segments; `get` takes the full qualified ID. A local command and a mount cannot share a name, nor can two mounts in the same registry. Duplicate entries, invalid segments, and direct or indirect cycles throw before changing state. These rules also prevent collisions after mounting: a conflicting child change is rejected by the child, leaving every registry unchanged. The same child may be mounted under different names or parents. Only registries created by `createCommandRegistry` can be mounted.
+
+`list()` returns a fresh array of shallow command copies in insertion order, expanding each mount in place recursively. Removing and adding an entry moves it to the end. `get()` also returns a shallow copy. The registry captures top-level command properties on registration; nested workflow objects and functions remain shared and should be treated as immutable. Nested `commands` are workflow menus, not registry entries, and are not qualified individually.
+
+Registries do not automatically update a command engine; call `refreshRegistry()` to discover registration changes.
+
+### Registration identity
+
+`registry.resolve(qualifiedId)` returns `{ command, qualifiedId, shared, runtimeRequired, isValid() }` for a registered command, or `undefined` if the path does not exist. The command is a shallow copy, as with `get()`. `isValid()` checks the original registration and every mount in the captured path. Removing and re-registering a command, or unmounting and remounting a registry under the same name, cannot reactivate an old resolution. Other paths to the same child are independent. Unrelated changes do not invalidate a resolution.
+
+Resolution covers registry entries and mounts only. Nested workflow commands in a command's `commands` array are not separate registrations and cannot be addressed by `resolve()`; the engine carries the root registration provenance through nested workflows. Calling a resolved command directly bypasses engine validity checks.
+
+
+### Using a registry with the engine
+
+```ts
+import { createCommandEngine, createCommandRegistry } from '@cmdly/core';
+
+const registry = createCommandRegistry();
+const remove = registry.register({ id: 'save', label: 'Save', run: () => save() });
+const engine = createCommandEngine({ registry });
+// Later, after registering other commands:
+engine.refreshRegistry();
+// When finished:
+engine.destroy();
+remove();
+```
+
+Supply either `registry` or `commands`, not both. A registry engine reads an ordered snapshot on creation and again on `refreshRegistry()`; it does not subscribe automatically. New or removed entries appear in its root menu after refresh. `setCommands()` and `setOptions({ commands })` throw before changing state on a registry engine; use `refreshRegistry()` to update its commands. Other `setOptions` fields remain available. Refreshing does not replace the definition of an active registry workflow, even when an entry with the same ID exists. Leave that workflow and select again to use the new entry.
+
+Registry commands retain the identity of their root registration and all mounts while navigating nested workflows. Invalidated provenance prevents contextual evaluations and new executions; failures are reported as `CommandUnavailableError` in the engine snapshot and to `onError`. Pending option results from invalidated commands are not applied. This also applies after re-registration or remounting with the same name. An invocation that has already called `run` is not cancelled by invalidation. Engines have independent snapshots and concurrent invocations retain their own selected identities. `destroy()` still ignores pending results as before.
+
+Ordinary `Command[]` retains its existing behavior: an active command removed by `setCommands()` can still run. Registry reads have contextual command types and cannot be passed as historical `Command[]`; use `{ registry }` for validity checks and context. Nested command IDs remain workflow-local, not registry paths.
+
+### Registry context and invocation runtime
+
+A registry owns the `shared` value captured with each registration. TypeScript infers it when no runtime type is needed:
+
+```ts
+const posts = createCommandRegistry({ shared: { postsApi } });
+posts.register({ id: 'create', label: 'Create post', run: async (answers, { shared }) => {
+  await shared.postsApi.create(answers);
+} });
+```
+
+Declare both types and set `runtimeRequired: true` when a runtime is required. The explicit flag is necessary because TypeScript types do not exist at runtime. This is a migration for registries previously declaring a non-optional runtime: add the flag. The engine requires a provider in TypeScript, including for commands that execute automatically upon selection or after their last step:
+
+```ts
+type Shared = { postsApi: PostsApi };
+type Runtime = { userId: string };
+const posts = createCommandRegistry<Shared, Runtime>({ shared: { postsApi }, runtimeRequired: true });
+posts.register({ id: 'create', label: 'Create post', run: async (answers, { shared, runtime }) => {
+  await shared.postsApi.create({ ...answers, authorId: runtime.userId });
+} });
+const engine = createCommandEngine({ registry: posts, runtime: () => ({ userId: auth.currentUser.id }) });
+// For a command awaiting confirmation:
+await engine.execute({ runtime: { userId: '123' } });
+```
+
+The registry exposes a read-only `runtimeRequired` boolean, and `CommandRegistry<TShared, TRuntime, TRuntimeRequired>` preserves its literal type independently of the runtime's shape. For `runtimeRequired: true`, including when `TRuntime` is `unknown`, a registry engine requires a provider at construction: `execute({ runtime })` alone cannot prepare predicates or options that run before execution. An optional or runtime-free registry does not require a provider. If the requirement is a non-literal `boolean`, or is widened to `CommandRegistry<TShared, TRuntime>`, supply a provider because the requirement may be true. Code that implements `CommandRegistry` itself must provide the new read-only property; existing two-parameter type references remain valid and use `boolean` for the third parameter. The runtime type is invariant, so a registry accepting an optional runtime cannot be assigned to one requiring a more specific runtime. For a required registry, providers and explicit overrides must return a value other than `undefined`; if a value is typed `unknown`, narrow it before returning it. `null`, `false`, `0` and empty strings remain valid.
+
+Mounts may be added or removed after a root registry is created, so an optional root's static type cannot acquire a required flag from later mounts. Supply a provider when any mounted registry requires a runtime. The engine checks each owning registry's requirement at runtime and refuses to evaluate or execute without a required value, even for an untyped or dynamically assembled root. Runtime shapes are not validated automatically; use a typed root or validate an `unknown` value in application code. A runtime-free registry can be mounted under an untyped root whose provider supplies a value: its commands are still typed with `runtime: undefined`, so do not rely on that type when such a provider is used. Declare the registry runtime as `unknown` when it may receive a value. For an `unknown` runtime, TypeScript cannot reject every promise or thenable resolving to `undefined`: even `async () => undefined` is accepted because a promise is itself an object. The engine checks the resolved value before invoking a command.
+
+The provider may return a promise. For registry workflows with contextual predicates, dynamic options or final-step predicates or renderers, the engine prepares a navigation session before evaluating them and reuses its runtime through execution. While an asynchronous provider is pending, the snapshot has `loading: true`; navigation methods remain synchronous. Repeated snapshot reads do not call the provider. Without such evaluations, the runtime is acquired per invocation unless an explicit value is supplied. Errors are reported through the snapshot and `onError`. For an owner with `runtimeRequired: true`, an undefined runtime prevents execution even when TypeScript is bypassed or no provider was supplied. The error is reported through the normal execution error policy. Values such as `false`, `0`, an empty string, and `null` are valid if the declared runtime type permits them. Commands already running retain their captured context; unregistering or unmounting while a provider is pending prevents `run` from starting. Changes in `onExecute` are also checked before `run`.
+
+Registry commands may use `when(answers, context)` and step `when` or `options(answers, context)` with the owning registry’s shared value and the session runtime. Dynamic options may return an array or a promise. Nested commands retain their root registration provenance; results from abandoned or invalidated workflows are not applied. Navigation back and forward retains the current session. After returning to the root menu, selecting a new workflow starts a new session; forward restores the existing one. Close and destroy abandon the session. Refreshing the root menu starts a new session. Only one navigation session is active per engine; separate engines have independent sessions.
+
+An explicit `execute({ runtime })` takes precedence when no contextual decision has been made. Once a predicate, dynamic options callback or final renderer has used the session runtime, an explicit runtime with a different identity is rejected and reported as an execution error: previously evaluated decisions cannot safely authorize a different runtime. Use the same runtime reference or start a new session. A failed preparation can be retried with `retry()`.
+
+A registry with no runtime requirement defaults to `runtimeRequired: false`; for a typed optional runtime, declare `TRuntime` as a union with `undefined`. When `runtimeRequired: true` is inferred without a runtime type, the runtime is `unknown` and must be narrowed by the command. Mounted registries can have different `shared` values and runtime policies; the owning registry supplies both policy and shared value, even through nested workflow commands. Two mounts of the same registry share that value but have independent validity paths. A root with a declared runtime type may mount children accepting that runtime type. An untyped root may mount registries with different runtime types, so its provider and explicit runtime are `unknown`; the caller must provide the right value for the selected command. Discovery on such a root likewise exposes an `unknown` runtime. `get`, `list`, and `resolve` expose `ContextualCommand<unknown, Runtime>` because a result may come from any mounted registry: direct calls require an explicit context, and its `shared` type is unknown. Use the engine to invoke registry commands safely. Historical `Command[]` and single-argument callbacks remain supported.
+
+### Context throughout a workflow
+
+A registry command and its nested commands receive the owner's `shared` value and the session `runtime` in `when`, step `when` and `options`, final-step `when` and `render`, and `run`. `render` keeps its existing final-screen argument and receives the command context as its second argument. Options can return an array or a promise. Treat both supplied values as immutable.
+
+The following example is also checked by the TypeScript test in `packages/core/src/context-extension-example.test.ts`:
+
+```ts
+import { createCommandEngine, createCommandRegistry } from '@cmdly/core';
+
+type Runtime = { userId: string };
+type Shared = {
+  canPublish: (userId: string) => boolean;
+  categories: (userId: string) => Promise<{ value: string; label: string }[]>;
+  publish: (category: string, visibility: string, userId: string) => void;
+};
+const shared: Shared = {
+  canPublish: userId => userId.length > 0,
+  categories: async () => [{ value: 'news', label: 'News' }],
+  publish: (category, visibility, userId) => console.log(category, visibility, userId),
+};
+const registry = createCommandRegistry<Shared, Runtime>({ shared, runtimeRequired: true });
+registry.register({
+  id: 'publish', label: 'Publish',
+  when: (_answers, { shared, runtime }) => shared.canPublish(runtime.userId),
+  steps: [
+    { id: 'category', label: 'Category', options: (_answers, { shared, runtime }) => shared.categories(runtime.userId) },
+    { id: 'visibility', label: 'Visibility', when: (_answers, { runtime }) => runtime.userId !== '', options: [{ value: 'public', label: 'Public' }] },
+  ],
+  finalStep: {
+    timing: 'before', closeOnComplete: false,
+    when: (_answers, { shared, runtime }) => shared.canPublish(runtime.userId),
+    render: (final, { runtime }) => `${runtime.userId}: ${final.summary.length} answers`,
+  },
+  run: (answers, { shared, runtime }) => shared.publish(answers.category, answers.visibility, runtime.userId),
+});
+const engine = createCommandEngine({
+  registry,
+  runtime: async () => ({ userId: 'user-1' }),
+  callbacks: {
+    onExecute: (_command, _answers, context) => console.log(context?.runtime.userId),
+    onError: (error, _snapshot, context) => console.error(error, context?.runtime.userId),
+  },
+  strategies: { closeOnComplete: (_command, _answers, _final, context) => context?.runtime.userId === '' },
+  plugins: [{ setup(pluginEngine) {
+    return pluginEngine.subscribe(() => {
+      const context = pluginEngine.getSnapshot().context;
+      if (context) console.log(context.runtime.userId);
+    });
+  } }],
+});
+```
+
+Engine callbacks keep their existing arguments and receive an optional context as their last argument. `closeOnComplete` receives it after the final step; `allowTransition` remains global. Snapshot context is optional, including in plugin subscriptions: a root menu or a failure before runtime acquisition has no identifiable command context. Its `shared` is `unknown` because a root may contain commands from different owners; narrow it before use. The command-specific callbacks above infer the concrete owner's shared type. Registry snapshots and callbacks expose `CommandView` without `run` or the contextual predicates and option loaders, because those functions cannot be safely called without an owner context. `StepView` likewise exposes display fields only. These are TypeScript views; legacy engines continue to expose `Command` and `Step`. An invocation invalidated after `run` starts may complete and keeps its success result, but subsequent final predicates and completion strategies are skipped. Its final screen is hidden.
+
+For registry engines, predicate, provider and options failures are reported in the snapshot and to `onError`; an evaluation failure does not authorize a command. Historical predicates retain their existing synchronous error behavior. Engine callbacks and plugin setup are synchronous and their returned promises are not awaited. For ordinary `Command[]`, existing one-argument predicates, options and `run`, callbacks, strategies and plugin setup remain valid. The engine remains framework-independent; `useCommandEngine()` subscribes to its snapshot and actions without creating a separate context lifecycle.
+
+Registry engines expose `CommandView` in snapshots, callbacks, strategies, and plugins. It contains the command's display, step, and navigation fields but does not expose `run`; nested commands are also views. These are TypeScript views of the existing objects, not runtime copies or access controls. Historical engines created with `commands: Command[]` retain `Command` in those positions. `useCommandEngine` preserves the corresponding snapshot and action types for both engine kinds. Direct calls to commands returned by registry discovery bypass engine runtime and provenance checks.
+
+## License
+
+Cmdly is released under the [MIT License](LICENSE).

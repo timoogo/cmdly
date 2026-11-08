@@ -1,0 +1,25 @@
+---
+title: "Create and Compose Registries"
+description: "Register commands and mount namespaces."
+---
+
+`createCommandRegistry()` creates a registry. `register(command)` and `registerMany(commands)` return idempotent cleanup functions. `registerMany` validates the whole batch before adding it. `mount(namespace, child)` adds a child registry and returns an unmount function.
+
+IDs and namespace segments must be non-empty and cannot contain dots; resolved IDs are joined with dots. Duplicate entries and cyclic mounts throw.
+```ts
+import { createCommandRegistry, createCommandEngine } from '@cmdly/core';
+
+const root = createCommandRegistry();
+const projects = createCommandRegistry();
+const unregister = projects.register({ id: 'open', label: 'Open project', run: () => {} });
+const unmount = root.mount('projects', projects);
+const engine = createCommandEngine({ registry: root });
+console.log(root.list().map(command => command.id)); // ["projects.open"]
+// After a later register/unregister/mount/unmount: engine.refreshRegistry();
+// When finished: unmount(); unregister(); engine.destroy();
+```
+
+
+## Typing the registry
+
+`createCommandRegistry()` creates a registry without shared or required runtime context. `createCommandRegistry({ shared })` infers shared context. Use `createCommandRegistry<Shared, Runtime>({ shared, runtimeRequired: true })` for a declared required runtime. The actual overloads infer `runtimeRequired` as a literal where possible; a dynamic boolean requires the engine to provide a runtime.

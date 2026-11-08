@@ -1,0 +1,23 @@
+---
+title: "Next.js and SSR"
+description: "Use the React adapter in Client Components."
+---
+
+Import `@cmdly/react` from a Client Component with a `"use client"` directive. No Next.js-specific package is needed.
+```tsx
+"use client";
+
+import { useState } from 'react';
+import { CommandPalette } from '@cmdly/react';
+import type { Command } from '@cmdly/core';
+
+const commands: Command[] = [{ id: 'hello', label: 'Say hello', run: () => console.log('Hello!') }];
+export function Commands() {
+  const [open, setOpen] = useState(false);
+  return <><button onClick={() => setOpen(true)}>Open commands</button>
+    <CommandPalette commands={commands} open={open} onOpenChange={setOpen} /></>;
+}
+```
+Start the palette closed for consistent server and client markup. `@cmdly/core` does not need browser globals, but mutable module-level engines and registries can leak state across server requests. Create them per request or on the client. `useCommandEngine` uses the engine snapshot for server rendering, so server and initial client snapshots must agree.
+
+A registry runtime provider may run while its engine is being created, including during server rendering if creation happens there. Avoid browser-only access in that path. An initially open palette uses a layout effect, which can warn during server rendering with React 18.
