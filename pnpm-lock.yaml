@@ -154,7 +154,7 @@ importers:
   packages/react:
     dependencies:
       '@cmdly/core':
-        specifier: 0.1.0
+        specifier: 0.1.1
         version: link:../core
       react:
         specifier: ^18.0.0 || ^19.0.0

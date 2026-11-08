@@ -1,12 +1,13 @@
 {
   "name": "@cmdly/react",
   "description": "React integration for Cmdly",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
+  "main": "./dist/index.js",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "default": "./dist/index.js"
     }
   },
   "files": [
@@ -29,7 +30,7 @@
     "url": "https://github.com/timoogo/cmdly/issues"
   },
   "dependencies": {
-    "@cmdly/core": "0.1.0"
+    "@cmdly/core": "0.1.1"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
