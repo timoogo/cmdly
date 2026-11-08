@@ -7,6 +7,20 @@ description: "Install the core and React packages."
 pnpm add @cmdly/core @cmdly/react
 ```
 
-For headless use, install only `@cmdly/core`. The React adapter requires React 18 or 19 as a peer. Both packages are ESM-only. The packages are planned for npm; verify availability before installing a release.
+For headless use, install only `@cmdly/core`. The React adapter requires React 18 or 19 as a peer.
+
+## Compatibility
+
+Cmdly is an ESM-only library. There is no separate CommonJS build: `import` and `require()` load the same files, so registries and `CommandUnavailableError` keep a single identity whichever way a module is loaded.
+
+- **`import`** works on Node.js 18 and later, and in bundlers. Validated on Node.js 18.20.8, 20.18.3, 20.19.0, 22.12.0 and 26, and with a Vite production build.
+- **`require('@cmdly/core')` and `require('@cmdly/react')`** rely on the native `require(esm)` support of Node.js and work from **Node.js 20.19.0 or 22.12.0** (validated on 20.19.0, 22.12.0 and 26). Older versions, including Node.js 18, Node.js 20 before 20.19 and Node.js 22 before 22.12, throw `ERR_REQUIRE_ESM`; use `await import('@cmdly/core')` there.
+- Tools that implement their own CommonJS loader instead of using Node.js, such as test runners without ESM support, may still fail to load ES modules. Cmdly does not claim universal CommonJS compatibility.
+
+TypeScript, validated with TypeScript 7.0 unless noted:
+
+- `moduleResolution: "bundler"` and `"nodenext"` are supported, including static imports from CommonJS files (`.cts`) under `nodenext`, which compile to `require()` and need the Node.js versions above. TypeScript versions before 5.8 reject these CommonJS imports.
+- `module: "node16"` models Node.js without `require(esm)`: a static import from a CommonJS file fails with TS1479. Use `await import('@cmdly/core')`, and `import type { … } from '@cmdly/core' with { 'resolution-mode': 'import' }` for types.
+- `moduleResolution: "node10"` (`"node"`) resolves the declarations through the `types` field (validated with TypeScript 5.9; TypeScript 7 removed this mode).
 
 Earlier imports from `cmdly/core` become `@cmdly/core`; imports from `cmdly` become `@cmdly/react`.

@@ -9,7 +9,23 @@ A headless command workflow engine with a React palette adapter. The engine is a
 The previous `cmdly/core` import is now `@cmdly/core`; import React APIs from `@cmdly/react` instead of `cmdly`.
 
 
-Install the packages with `pnpm add @cmdly/core @cmdly/react` after publication. Within this repository, run `pnpm install` from the root.
+Install the packages with `pnpm add @cmdly/core @cmdly/react`. Within this repository, run `pnpm install` from the root.
+
+### Compatibility
+
+Cmdly is an ESM-only library. There is no separate CommonJS build: `import` and `require()` load the same files, so registries and `CommandUnavailableError` keep a single identity whichever way a module is loaded.
+
+- **`import`** works on Node.js 18 and later, and in bundlers. Validated on Node.js 18.20.8, 20.18.3, 20.19.0, 22.12.0 and 26, and with a Vite production build.
+- **`require('@cmdly/core')` and `require('@cmdly/react')`** rely on the native `require(esm)` support of Node.js and work from **Node.js 20.19.0 or 22.12.0** (validated on 20.19.0, 22.12.0 and 26). Older versions, including Node.js 18, Node.js 20 before 20.19 and Node.js 22 before 22.12, throw `ERR_REQUIRE_ESM`; use `await import('@cmdly/core')` there.
+- Tools that implement their own CommonJS loader instead of using Node.js, such as test runners without ESM support, may still fail to load ES modules. Cmdly does not claim universal CommonJS compatibility.
+
+TypeScript, validated with TypeScript 7.0 unless noted:
+
+- `moduleResolution: "bundler"` and `"nodenext"` are supported, including static imports from CommonJS files (`.cts`) under `nodenext`, which compile to `require()` and need the Node.js versions above. TypeScript versions before 5.8 reject these CommonJS imports.
+- `module: "node16"` models Node.js without `require(esm)`: a static import from a CommonJS file fails with TS1479. Use `await import('@cmdly/core')`, and `import type { … } from '@cmdly/core' with { 'resolution-mode': 'import' }` for types.
+- `moduleResolution: "node10"` (`"node"`) resolves the declarations through the `types` field (validated with TypeScript 5.9; TypeScript 7 removed this mode).
+
+Run `pnpm check:pack` to verify the packed archives in an isolated project; set `CMDLY_NODE_BINARIES` to a comma-separated list of Node.js executables to run its runtime scenarios on several versions.
 
 ## Quick start
 
@@ -176,7 +192,7 @@ Local command IDs and namespaces must be nonempty, non-whitespace strings withou
 
 `list()` returns a fresh array of shallow command copies in insertion order, expanding each mount in place recursively. Removing and adding an entry moves it to the end. `get()` also returns a shallow copy. The registry captures top-level command properties on registration; nested workflow objects and functions remain shared and should be treated as immutable. Nested `commands` are workflow menus, not registry entries, and are not qualified individually.
 
-Registries do not automatically update a command engine; call `refreshRegistry()` to discover registration changes.
+Registries do not automatically update a command engine; call `refreshRegistry()` to discover registration changes. This is intentional: an engine works from the registry snapshot it read, so registering, unregistering, mounting or unmounting in an existing registry does not change an engine that is already created until `refreshRegistry()` is called.
 
 ### Registration identity
 

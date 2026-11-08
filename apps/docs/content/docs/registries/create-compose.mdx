@@ -19,6 +19,8 @@ console.log(root.list().map(command => command.id)); // ["projects.open"]
 // When finished: unmount(); unregister(); engine.destroy();
 ```
 
+An engine reads the registry when it is created and again on `refreshRegistry()`. Changing an existing registry does not update an engine that is already created; this is intentional, so call `engine.refreshRegistry()` when its menu should reflect the change.
+
 
 ## Typing the registry
 
