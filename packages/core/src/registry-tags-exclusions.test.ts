@@ -81,13 +81,13 @@ describe('filterByTag utility', () => {
 });
 
 // ---------------------------------------------------------------------------
-// registerGlobal
+// register("*", ...) — primary wildcard API
 // ---------------------------------------------------------------------------
 
-describe('registerGlobal', () => {
+describe('register("*", command)', () => {
   it('appears in list() at root level', () => {
     const r = createCommandRegistry();
-    r.registerGlobal(cmd('help'));
+    r.register('*', cmd('help'));
     expect(r.list().map(c => c.id)).toContain('help');
   });
 
@@ -100,7 +100,7 @@ describe('registerGlobal', () => {
     r.mount('ns1', child1);
     r.mount('ns2', child2);
 
-    r.registerGlobal(cmd('help'));
+    r.register('*', cmd('help'));
 
     const ids = r.list().map(c => c.id);
     expect(ids).toContain('help');
@@ -108,9 +108,9 @@ describe('registerGlobal', () => {
     expect(ids).toContain('ns2.help');
   });
 
-  it('appears under namespaces mounted AFTER registerGlobal', () => {
+  it('appears under namespaces mounted AFTER the wildcard call', () => {
     const r = createCommandRegistry();
-    r.registerGlobal(cmd('help'));
+    r.register('*', cmd('help'));
 
     const child = createCommandRegistry();
     child.register(cmd('a'));
@@ -121,13 +121,13 @@ describe('registerGlobal', () => {
     expect(ids).toContain('ns.help');
   });
 
-  it('unregister removes the global from all namespaces', () => {
+  it('returns an unregister function that removes from all namespaces', () => {
     const r = createCommandRegistry();
     const child = createCommandRegistry();
     child.register(cmd('a'));
     r.mount('ns', child);
 
-    const unregister = r.registerGlobal(cmd('help'));
+    const unregister = r.register('*', cmd('help'));
     expect(r.list().map(c => c.id)).toContain('ns.help');
 
     unregister();
@@ -135,18 +135,18 @@ describe('registerGlobal', () => {
     expect(r.list().map(c => c.id)).not.toContain('ns.help');
   });
 
-  it('publishes to subscribers on registerGlobal', () => {
+  it('publishes to subscribers', () => {
     const r = createCommandRegistry();
     const listener = vi.fn();
     r.subscribe(listener);
-    r.registerGlobal(cmd('help'));
+    r.register('*', cmd('help'));
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('publishes on unregister', () => {
     const r = createCommandRegistry();
     const listener = vi.fn();
-    const unregister = r.registerGlobal(cmd('help'));
+    const unregister = r.register('*', cmd('help'));
     r.subscribe(listener);
     unregister();
     expect(listener).toHaveBeenCalledTimes(1);
@@ -154,11 +154,11 @@ describe('registerGlobal', () => {
 });
 
 // ---------------------------------------------------------------------------
-// registerGlobal with exclude
+// register("*", ...) with skipRegistries — registry namespace exclusion
 // ---------------------------------------------------------------------------
 
-describe('registerGlobal with exclude', () => {
-  it('skips excluded namespaces', () => {
+describe('register("*", command, { skipRegistries })', () => {
+  it('skips the listed namespace ids', () => {
     const r = createCommandRegistry();
     const admin = createCommandRegistry();
     const user = createCommandRegistry();
@@ -167,7 +167,7 @@ describe('registerGlobal with exclude', () => {
     r.mount('admin', admin);
     r.mount('user', user);
 
-    r.registerGlobal(cmd('help'), { exclude: ['admin'] });
+    r.register('*', cmd('help'), { skipRegistries: ['admin'] });
 
     const ids = r.list().map(c => c.id);
     expect(ids).toContain('help');
@@ -175,7 +175,7 @@ describe('registerGlobal with exclude', () => {
     expect(ids).not.toContain('admin.help');
   });
 
-  it('supports multiple exclusions', () => {
+  it('supports multiple skipped registries', () => {
     const r = createCommandRegistry();
     const ns1 = createCommandRegistry();
     const ns2 = createCommandRegistry();
@@ -184,7 +184,7 @@ describe('registerGlobal with exclude', () => {
     r.mount('ns2', ns2);
     r.mount('ns3', ns3);
 
-    r.registerGlobal(cmd('help'), { exclude: ['ns1', 'ns2'] });
+    r.register('*', cmd('help'), { skipRegistries: ['ns1', 'ns2'] });
 
     const ids = r.list().map(c => c.id);
     expect(ids).not.toContain('ns1.help');
@@ -193,9 +193,9 @@ describe('registerGlobal with exclude', () => {
     expect(ids).toContain('help');
   });
 
-  it('exclusion applies to late-mounted namespaces too', () => {
+  it('skipRegistries applies to late-mounted namespaces too', () => {
     const r = createCommandRegistry();
-    r.registerGlobal(cmd('help'), { exclude: ['secret'] });
+    r.register('*', cmd('help'), { skipRegistries: ['secret'] });
 
     const secret = createCommandRegistry();
     const pub = createCommandRegistry();
@@ -206,11 +206,110 @@ describe('registerGlobal with exclude', () => {
     expect(ids).not.toContain('secret.help');
     expect(ids).toContain('pub.help');
   });
+
+  it('skipRegistries does NOT block explicit register() in the skipped registry', () => {
+    // skipRegistries only controls global injection — it is not a command-id block
+    const r = createCommandRegistry();
+    const admin = createCommandRegistry();
+    r.mount('admin', admin);
+    r.register('*', cmd('help'), { skipRegistries: ['admin'] });
+
+    // The admin registry can still explicitly register its own 'help' command
+    expect(() => admin.register(cmd('help'))).not.toThrow();
+    expect(r.list().map(c => c.id)).toContain('admin.help');
+  });
 });
 
 // ---------------------------------------------------------------------------
-// exclude()
+// registerGlobal — alias for register("*", ...)
 // ---------------------------------------------------------------------------
+
+describe('registerGlobal (alias)', () => {
+  it('is an alias for register("*", ...)', () => {
+    const r = createCommandRegistry();
+    const child = createCommandRegistry();
+    r.mount('ns', child);
+
+    r.registerGlobal(cmd('help'));
+
+    const ids = r.list().map(c => c.id);
+    expect(ids).toContain('help');
+    expect(ids).toContain('ns.help');
+  });
+
+  it('skipRegistries option works via alias', () => {
+    const r = createCommandRegistry();
+    const admin = createCommandRegistry();
+    const user = createCommandRegistry();
+    r.mount('admin', admin);
+    r.mount('user', user);
+
+    r.registerGlobal(cmd('help'), { skipRegistries: ['admin'] });
+
+    const ids = r.list().map(c => c.id);
+    expect(ids).not.toContain('admin.help');
+    expect(ids).toContain('user.help');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concept separation: skipRegistries vs exclude()
+// ---------------------------------------------------------------------------
+
+describe('concept separation: registry namespaces vs command ids', () => {
+  it('skipRegistries blocks namespace injection, not the command id itself', () => {
+    const r = createCommandRegistry();
+    const admin = createCommandRegistry();
+    r.mount('admin', admin);
+    // Global help skips the 'admin' namespace injection
+    r.register('*', cmd('help'), { skipRegistries: ['admin'] });
+    // The root still has 'help'
+    expect(r.list().map(c => c.id)).toContain('help');
+    // admin does NOT get the global injection
+    expect(r.list().map(c => c.id)).not.toContain('admin.help');
+    // But admin can register its own 'help' — the skip is NOT a command-id ban
+    expect(() => admin.register(cmd('help'))).not.toThrow();
+    expect(r.list().map(c => c.id)).toContain('admin.help');
+  });
+
+  it('exclude() bans a command id, not a namespace', () => {
+    const r = createCommandRegistry();
+    const admin = createCommandRegistry();
+    r.mount('admin', admin);
+    // Ban the command id 'secret-cmd' from the root registry
+    r.exclude(['secret-cmd']);
+    // Cannot register 'secret-cmd' at root
+    expect(() => r.register(cmd('secret-cmd'))).toThrow(/excluded/);
+    // But the admin sub-registry is unaffected — it can register 'secret-cmd'
+    expect(() => admin.register(cmd('secret-cmd'))).not.toThrow();
+    expect(r.list().map(c => c.id)).toContain('admin.secret-cmd');
+  });
+
+  it('exclude() on a command id does not prevent namespace injection of a global with a different id', () => {
+    const r = createCommandRegistry();
+    const admin = createCommandRegistry();
+    r.mount('admin', admin);
+    r.exclude(['forbidden']);          // bans id 'forbidden' from root
+    r.register('*', cmd('allowed')); // global with a different id
+    // The global still injects into admin
+    expect(r.list().map(c => c.id)).toContain('admin.allowed');
+  });
+
+  it('child.exclude() on a command id blocks global injection of that specific id into the child', () => {
+    const r = createCommandRegistry();
+    const admin = createCommandRegistry();
+    admin.exclude(['help']); // admin blocks command id 'help' for itself
+    r.mount('admin', admin);
+    r.register('*', cmd('help')); // global
+
+    // Root still has 'help'
+    expect(r.list().map(c => c.id)).toContain('help');
+    // Admin blocked command id 'help' — global injection is suppressed
+    expect(r.list().map(c => c.id)).not.toContain('admin.help');
+    // And admin cannot explicitly register 'help' either
+    expect(() => admin.register(cmd('help'))).toThrow(/excluded/);
+  });
+});
 
 describe('exclude()', () => {
   it('prevents registering an excluded id', () => {

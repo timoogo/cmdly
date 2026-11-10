@@ -1,7 +1,8 @@
 import type { Command, ContextualCommand, CommandRegistry, GlobalRegistrationOptions, ResolvedCommand, ObservedRuntime } from './types.js';
 
 type Entry = { command: Command } | { registry: State };
-type GlobalEntry = { command: Command; exclude: Set<string> };
+/** skipRegistries: set of *namespace ids* (mount points) where this global must NOT be injected. */
+type GlobalEntry = { command: Command; skipRegistries: Set<string> };
 type State = { shared: unknown; runtimeRequired: boolean; entries: Map<string, Entry>; globals: GlobalEntry[]; excluded: Set<string>; parents: Map<State, number>; listeners: Set<() => void> };
 const states = new WeakMap<object, State>();
 
@@ -54,18 +55,21 @@ function commands(state: State, prefix = ''): Command[] {
     const qualified = prefix + id;
     if ('command' in entry) result.push({ ...entry.command, id: qualified });
     else {
-      // Inject globals from parent into this sub-namespace, filtered by exclusions
+      // Inject globals from parent into this sub-namespace.
+      // `global.skipRegistries` lists *namespace ids* to skip — not command ids.
       const childGlobals = collectGlobals(entry.registry);
       for (const global of childGlobals) {
-        if (!global.exclude.has(id) && !entry.registry.excluded.has(global.command.id)) {
-          result.push({ ...global.command, id: qualified + '.' + global.command.id });
-        }
+        // Skip if this namespace id is in the global's skipRegistries list.
+        if (global.skipRegistries.has(id)) continue;
+        // Skip if the child registry has explicitly blocked this command id.
+        if (entry.registry.excluded.has(global.command.id)) continue;
+        result.push({ ...global.command, id: qualified + '.' + global.command.id });
       }
       result.push(...commands(entry.registry, qualified + '.'));
     }
   }
 
-  // Append globals at this level (not injected into sub-registries here, that's done above)
+  // Append globals at this level (not injected into sub-registries here, that's done above).
   const allGlobals = state.globals;
   for (const global of allGlobals) {
     if (!localExcluded.has(global.command.id)) {
@@ -88,7 +92,13 @@ export function createCommandRegistry<TShared = undefined, TRuntime = undefined>
   const state: State = { shared: options?.shared, runtimeRequired: options?.runtimeRequired === true, entries: new Map(), globals: [], excluded: new Set(), parents: new Map(), listeners: new Set() };
   const registry: CommandRegistry<TShared, TRuntime, boolean> = {
     runtimeRequired: state.runtimeRequired,
-    register(command) { return registry.registerMany([command]); },
+    register(commandOrWildcard: ContextualCommand<TShared, TRuntime> | '*', commandIfWildcard?: ContextualCommand<TShared, TRuntime>, wildcardOptions?: GlobalRegistrationOptions): () => void {
+      if (commandOrWildcard === '*') {
+        // Wildcard overload: register("*", command, options?)
+        return registry.registerGlobal(commandIfWildcard!, wildcardOptions);
+      }
+      return registry.registerMany([commandOrWildcard]);
+    },
     registerMany(items) {
       const additions = new Map<string, Entry>();
       for (const command of items) {
@@ -108,8 +118,8 @@ export function createCommandRegistry<TShared = undefined, TRuntime = undefined>
     },
     registerGlobal(command, options?: GlobalRegistrationOptions) {
       segment(command.id, 'Command id');
-      const excludeSet = new Set(options?.exclude ?? []);
-      const global: GlobalEntry = { command: { ...command } as unknown as Command, exclude: excludeSet };
+      const skipRegistries = new Set(options?.skipRegistries ?? []);
+      const global: GlobalEntry = { command: { ...command } as unknown as Command, skipRegistries };
       state.globals.push(global);
       publish(state);
       return () => {

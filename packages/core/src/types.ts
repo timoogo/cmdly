@@ -53,15 +53,40 @@ export type ResolvedCommand<TRuntime = undefined> = {
 };
 
 declare const runtimeType: unique symbol;
-export type GlobalRegistrationOptions = { exclude?: string[] };
+/**
+ * Options for wildcard (global) registration.
+ * `skipRegistries` lists the namespace ids to skip — these are registry mount points,
+ * not command ids. Use the registry's `exclude()` method to block command ids instead.
+ */
+export type GlobalRegistrationOptions = { skipRegistries?: string[] };
+
 export type CommandRegistry<TShared = undefined, TRuntime = undefined, TRuntimeRequired extends boolean = boolean> = {
   readonly [runtimeType]?: (runtime: TRuntime) => TRuntime;
   readonly runtimeRequired: TRuntimeRequired;
+  /**
+   * Register a command in this registry.
+   * @example registry.register(myCommand)
+   */
   register(command: ContextualCommand<TShared, TRuntime>): () => void;
+  /**
+   * Register a command into every namespace of this registry (and future mounts).
+   * Pass `"*"` as the first argument to use wildcard registration.
+   * @example registry.register("*", helpCommand, { skipRegistries: ["admin"] })
+   */
+  register(wildcard: "*", command: ContextualCommand<TShared, TRuntime>, options?: GlobalRegistrationOptions): () => void;
   registerMany(commands: readonly ContextualCommand<TShared, TRuntime>[]): () => void;
-  /** Register a command into every namespace of this registry (and future mounts), except excluded ids. */
+  /**
+   * Alias for `register("*", command, options)`.
+   * Registers a command into every namespace (current and future), except those in `skipRegistries`.
+   */
   registerGlobal(command: ContextualCommand<TShared, TRuntime>, options?: GlobalRegistrationOptions): () => void;
-  /** Permanently exclude ids from registration. Removes existing entries with those ids. */
+  /**
+   * Permanently block command ids from being registered in this registry.
+   * Retroactively removes any existing entry with a blocked id.
+   * Any future `register` / `registerMany` call with a blocked id throws at runtime.
+   * Note: this blocks *command ids*, not registry namespace ids.
+   * To skip namespaces for a wildcard registration, use `skipRegistries` in the options.
+   */
   exclude(ids: string[]): void;
   mount<TChild, TChildRuntime, TChildRequired extends boolean>(namespace: string, registry: CommandRegistry<TChild, TChildRuntime, TChildRequired> & ([TRuntime] extends [undefined] ? unknown : [Exclude<TRuntime, undefined>] extends [TChildRuntime] ? unknown : never)): () => void;
   get(id: string): ContextualCommand<unknown, ObservedRuntime<TRuntime>> | undefined;
