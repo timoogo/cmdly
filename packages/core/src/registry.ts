@@ -1,7 +1,8 @@
-import type { Command, ContextualCommand, CommandRegistry, ResolvedCommand, ObservedRuntime } from './types.js';
+import type { Command, ContextualCommand, CommandRegistry, GlobalRegistrationOptions, ResolvedCommand, ObservedRuntime } from './types.js';
 
 type Entry = { command: Command } | { registry: State };
-type State = { shared: unknown; runtimeRequired: boolean; entries: Map<string, Entry>; parents: Map<State, number>; listeners: Set<() => void> };
+type GlobalEntry = { command: Command; exclude: Set<string> };
+type State = { shared: unknown; runtimeRequired: boolean; entries: Map<string, Entry>; globals: GlobalEntry[]; excluded: Set<string>; parents: Map<State, number>; listeners: Set<() => void> };
 const states = new WeakMap<object, State>();
 
 function segment(value: string, kind: string): void {
@@ -31,13 +32,47 @@ function publish(state: State): void {
   if (failed) throw failure;
 }
 
+/** Collect globals visible in this state (from all ancestor states via parents). */
+function collectGlobals(state: State): GlobalEntry[] {
+  const seen = new Set<State>();
+  const result: GlobalEntry[] = [];
+  const walk = (s: State) => {
+    if (seen.has(s)) return;
+    seen.add(s);
+    result.push(...s.globals);
+    for (const parent of s.parents.keys()) walk(parent);
+  };
+  walk(state);
+  return result;
+}
+
 function commands(state: State, prefix = ''): Command[] {
   const result: Command[] = [];
+  const localExcluded = state.excluded;
+
   for (const [id, entry] of state.entries) {
     const qualified = prefix + id;
     if ('command' in entry) result.push({ ...entry.command, id: qualified });
-    else result.push(...commands(entry.registry, qualified + '.'));
+    else {
+      // Inject globals from parent into this sub-namespace, filtered by exclusions
+      const childGlobals = collectGlobals(entry.registry);
+      for (const global of childGlobals) {
+        if (!global.exclude.has(id) && !entry.registry.excluded.has(global.command.id)) {
+          result.push({ ...global.command, id: qualified + '.' + global.command.id });
+        }
+      }
+      result.push(...commands(entry.registry, qualified + '.'));
+    }
   }
+
+  // Append globals at this level (not injected into sub-registries here, that's done above)
+  const allGlobals = state.globals;
+  for (const global of allGlobals) {
+    if (!localExcluded.has(global.command.id)) {
+      result.push({ ...global.command, id: prefix + global.command.id });
+    }
+  }
+
   return result;
 }
 
@@ -50,7 +85,7 @@ export function createCommandRegistry<TShared>(options: { shared: TShared; runti
 export function createCommandRegistry<TShared, TRuntime = undefined>(options: { shared: TShared } & ([TRuntime] extends [undefined] ? { runtimeRequired?: false } : undefined extends TRuntime ? { runtimeRequired?: boolean } : { runtimeRequired: true })): CommandRegistry<TShared, TRuntime, boolean>;
 export function createCommandRegistry(): CommandRegistry<undefined, undefined, false>;
 export function createCommandRegistry<TShared = undefined, TRuntime = undefined>(options?: { shared: TShared; runtimeRequired?: boolean }): CommandRegistry<TShared, TRuntime, boolean> {
-  const state: State = { shared: options?.shared, runtimeRequired: options?.runtimeRequired === true, entries: new Map(), parents: new Map(), listeners: new Set() };
+  const state: State = { shared: options?.shared, runtimeRequired: options?.runtimeRequired === true, entries: new Map(), globals: [], excluded: new Set(), parents: new Map(), listeners: new Set() };
   const registry: CommandRegistry<TShared, TRuntime, boolean> = {
     runtimeRequired: state.runtimeRequired,
     register(command) { return registry.registerMany([command]); },
@@ -58,6 +93,7 @@ export function createCommandRegistry<TShared = undefined, TRuntime = undefined>
       const additions = new Map<string, Entry>();
       for (const command of items) {
         segment(command.id, 'Command id');
+        if (state.excluded.has(command.id)) throw new Error(`Registration of '${command.id}' is excluded in this registry`);
         if (state.entries.has(command.id) || additions.has(command.id)) throw new Error(`Duplicate registry entry: ${command.id}`);
         additions.set(command.id, { command: { ...command } as unknown as Command });
       }
@@ -69,6 +105,27 @@ export function createCommandRegistry<TShared = undefined, TRuntime = undefined>
         for (const [id, entry] of additions) if (state.entries.get(id) === entry) { state.entries.delete(id); changed = true; }
         if (changed) publish(state);
       };
+    },
+    registerGlobal(command, options?: GlobalRegistrationOptions) {
+      segment(command.id, 'Command id');
+      const excludeSet = new Set(options?.exclude ?? []);
+      const global: GlobalEntry = { command: { ...command } as unknown as Command, exclude: excludeSet };
+      state.globals.push(global);
+      publish(state);
+      return () => {
+        const index = state.globals.indexOf(global);
+        if (index !== -1) { state.globals.splice(index, 1); publish(state); }
+      };
+    },
+    exclude(ids) {
+      let changed = false;
+      for (const id of ids) {
+        if (state.excluded.has(id)) continue;
+        state.excluded.add(id);
+        // Retroactively remove any existing entry with this id
+        if (state.entries.has(id)) { state.entries.delete(id); changed = true; } else { changed = true; }
+      }
+      if (changed) publish(state);
     },
     mount(namespace, child) {
       segment(namespace, 'Namespace');
@@ -112,6 +169,7 @@ export function createCommandRegistry<TShared = undefined, TRuntime = undefined>
       return undefined;
     },
     list() { return commands(state) as unknown as ContextualCommand<unknown, ObservedRuntime<TRuntime>>[]; },
+    listByTag(tag) { return registry.list().filter(cmd => cmd.tags?.includes(tag)); },
     subscribe(listener) { state.listeners.add(listener); return () => { state.listeners.delete(listener); }; },
   };
   states.set(registry, state);

@@ -10,7 +10,7 @@ export type SummaryItem = { id: string; label: string; value: string };
 export type FinalContext = { answers: Answers; summary: SummaryItem[]; status: FinalStatus; error: unknown; result: unknown; execute: () => Promise<void>; back: () => void; close: () => void };
 export type FinalStep = { timing?: 'before' | 'after'; when?: (answers: Answers) => boolean; fields?: SummaryField[]; closeOnComplete?: boolean; render?: (context: FinalContext) => unknown };
 export type CommandSettings = { arrowNavigation?: boolean; progress?: ProgressMode | false; backBehavior?: BackBehavior; maxVisibleItems?: number; finalStep?: FinalStep | false };
-type CommandBase = CommandSettings & { id: string; label: string; steps?: Step[]; when?: (answers: Answers) => boolean };
+type CommandBase = CommandSettings & { id: string; label: string; tags?: string[]; steps?: Step[]; when?: (answers: Answers) => boolean };
 export type CommandContext<TShared, TRuntime> = { shared: TShared; runtime: TRuntime };
 export type ContextualStep<TShared, TRuntime> = Omit<Step, 'options' | 'when'> & {
   options: Option[] | ((answers: Answers, context: CommandContext<TShared, TRuntime>) => Option[] | Promise<Option[]>);
@@ -21,6 +21,7 @@ export type ContextualFinalStep<TShared, TRuntime> = Omit<FinalStep, 'when' | 'r
   render?: (final: FinalContext, context: CommandContext<TShared, TRuntime>) => unknown;
 };
 type ContextualCommandBase<TShared, TRuntime> = Omit<CommandBase, 'when' | 'steps' | 'finalStep'> & {
+  tags?: string[];
   finalStep?: ContextualFinalStep<TShared, TRuntime> | false;
   when?: (answers: Answers, context: CommandContext<TShared, TRuntime>) => boolean;
   steps?: ContextualStep<TShared, TRuntime>[];
@@ -52,14 +53,21 @@ export type ResolvedCommand<TRuntime = undefined> = {
 };
 
 declare const runtimeType: unique symbol;
+export type GlobalRegistrationOptions = { exclude?: string[] };
 export type CommandRegistry<TShared = undefined, TRuntime = undefined, TRuntimeRequired extends boolean = boolean> = {
   readonly [runtimeType]?: (runtime: TRuntime) => TRuntime;
   readonly runtimeRequired: TRuntimeRequired;
   register(command: ContextualCommand<TShared, TRuntime>): () => void;
   registerMany(commands: readonly ContextualCommand<TShared, TRuntime>[]): () => void;
+  /** Register a command into every namespace of this registry (and future mounts), except excluded ids. */
+  registerGlobal(command: ContextualCommand<TShared, TRuntime>, options?: GlobalRegistrationOptions): () => void;
+  /** Permanently exclude ids from registration. Removes existing entries with those ids. */
+  exclude(ids: string[]): void;
   mount<TChild, TChildRuntime, TChildRequired extends boolean>(namespace: string, registry: CommandRegistry<TChild, TChildRuntime, TChildRequired> & ([TRuntime] extends [undefined] ? unknown : [Exclude<TRuntime, undefined>] extends [TChildRuntime] ? unknown : never)): () => void;
   get(id: string): ContextualCommand<unknown, ObservedRuntime<TRuntime>> | undefined;
   resolve(id: string): ResolvedCommand<TRuntime> | undefined;
   list(): ContextualCommand<unknown, ObservedRuntime<TRuntime>>[];
   subscribe(listener: () => void): () => void;
+  /** Filter the registry's commands by tag. */
+  listByTag(tag: string): ContextualCommand<unknown, ObservedRuntime<TRuntime>>[];
 };

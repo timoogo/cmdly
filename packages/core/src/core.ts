@@ -1,9 +1,14 @@
 import type { Frame, Level, Position } from './engine-state.js';
 import { key, clearSavedBranch, resolveSetting, resolveFinalConfig, summarizeAnswers, calculateProgress } from './workflow.js';
 import { CommandUnavailableError } from './errors.js';
-import type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry } from './types.js';
-export type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry } from './types.js';
+import type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions } from './types.js';
+export type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions } from './types.js';
 export { createCommandRegistry } from './registry.js';
+
+/** Filter an array of commands by tag. */
+export function filterByTag<T extends { tags?: string[] }>(commands: T[], tag: string): T[] {
+  return commands.filter(cmd => cmd.tags?.includes(tag));
+}
 
 export { CommandUnavailableError } from './errors.js';
 /** Creates a framework-independent workflow store. Async operations are ignored after navigation or destruction. */
