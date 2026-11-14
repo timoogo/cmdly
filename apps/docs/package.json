@@ -14,7 +14,7 @@
     "@cmdly/react": "workspace:*",
     "@react-router/node": "^8.5.0",
     "@react-router/serve": "^8.5.0",
-    "fumadocs-core": "16.18.1",
+    "fumadocs-core": "16.19.0",
     "fumadocs-mdx": "15.5.0",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.18.1",
     "isbot": "^5.2.2",
