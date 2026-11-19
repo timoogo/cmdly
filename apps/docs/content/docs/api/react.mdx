@@ -5,7 +5,7 @@ description: "Public React exports."
 
 `useCommandEngine(engine)` returns `{ state, actions }`; overloads preserve registry runtime typing. It subscribes to the supplied engine and does not create or destroy it.
 
-`CommandPalette` takes `commands`, `open`, `onOpenChange`, optional defaults, callbacks, strategies, plugins and `renderProgress`. `CommandPaletteProps` is its public prop type. The adapter also re-exports the public core API.
+`CommandPalette` takes `commands`, `open`, `onOpenChange`, optional defaults, callbacks, strategies, plugins, `renderProgress`, `tokens` (global token types, applied live) and `tokenFeedback` (`'banner'` by default, `'loader'`, `'none'` or a component receiving `TokenFeedbackProps`). `describeTokenIssue(token)` returns the default issue text. `CommandPaletteProps` is its public prop type. The adapter also re-exports the public core API.
 
 ## Signatures
 

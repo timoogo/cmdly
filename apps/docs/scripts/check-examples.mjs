@@ -7,6 +7,7 @@ const checks = [
   ['runtime.ts', 'registries/context-sessions.mdx'],
   ['react.tsx', 'react/integration.mdx'],
   ['next.tsx', 'react/nextjs.mdx'],
+  ['tokens.ts', 'core/tokens.mdx'],
 ];
 for (const [example, page] of checks) {
   const code = await readFile(new URL(`../examples/${example}`, import.meta.url), 'utf8');

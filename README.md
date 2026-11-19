@@ -63,11 +63,35 @@ The host controls opening, including any global shortcut. Search filters the cur
 
 The object API keeps a command and its workflow together and makes simple commands concise. JSX composition offers greater control over rendering but adds component nesting and boilerplate; this POC favors the requested small API.
 
+## Tokens
+
+Recognize tokens such as `@alice`, `#42` or a prefix-less `bob@example.com` in the input, in the palette and in workflow steps. Cmdly recognizes and validates them (`values` registry or a sync/async `match` with an `AbortSignal`) and hands them to commands; it never filters commands or blocks execution because of them. The remaining text keeps driving search.
+
+```ts
+const user = defineTokenType({
+  id: 'user',
+  prefix: '@',
+  match: async (login, { signal }) => {
+    const person = await findUser(login, signal);
+    return person ? { valid: true, data: person } : { valid: false, message: `Unknown user ${login}` };
+  },
+});
+const email = defineTokenType({ id: 'email', prefixMode: 'none', detect: /^[^\s@]+@[^\s@]+\.\w+$/ });
+
+<CommandPalette commands={commands} tokens={{ types: [user, email] }} tokenFeedback="banner" open={open} onOpenChange={setOpen} />
+
+// In a command: run(answers, context) → context.tokens, await context.settleTokens()
+```
+
+Resolution is deterministic: longest prefix first, prefix-less types only when no prefix matches, local (step, then command) types over global ones, and same-scope collisions resolved by `tokens.resolve` or reported as `ambiguous`. Statuses are `pending`, `valid`, `invalid`, `error` and `ambiguous`; `snapshot.tokenFeedback` aggregates them independently of rendering, and `CommandPalette` shows it as `banner`, `loader`, `none` or your own component. Global types can be registered at runtime with `engine.tokens.register()`. See `apps/docs/content/docs/core/tokens.mdx` for the full reference.
+
 ## Local development
 
 Run `pnpm install`, `pnpm test`, `pnpm typecheck`, and `pnpm build` from the repository root.
 
 ## Limitations
+
+Tokens: no value autocompletion, no values containing spaces, prefixes are recognized at word starts only, no built-in debounce, and local token types follow their command registration.
 
 The palette owns its semantic markup; built-in styling is not provided. It does not register a global shortcut. Async requests are ignored after navigation but are not aborted. The host is responsible for unique IDs, accessible page-level modal isolation, and HTTP response validation in option loaders.
 

@@ -1,0 +1,102 @@
+---
+title: "Tokens"
+description: "Recognize prefixed and prefix-less tokens in the input, validate them, and hand them to commands."
+---
+
+Tokens are pieces of the query such as `@alice`, `#42` or `bob@example.com`. Cmdly recognizes and validates them; **it never filters commands or blocks execution because of them**. The rest of the query (`snapshot.text`) still drives search, and your commands decide what tokens mean. Tokens are unrelated to command tags.
+
+```ts
+import { createCommandEngine, defineTokenType, type Command } from '@cmdly/core';
+
+const user = defineTokenType({
+  id: 'user',
+  prefix: '@',
+  match: async (login, { signal }) => {
+    const response = await fetch(`/api/users/${encodeURIComponent(login)}`, { signal });
+    if (!response.ok) return { valid: false, message: `Unknown user ${login}` };
+    return { valid: true, data: (await response.json()) as { id: string; name: string } };
+  },
+});
+
+const assign: Command = {
+  id: 'assign',
+  label: 'Assign',
+  run: async (_answers, context) => {
+    const tokens = (await context?.settleTokens?.()) ?? [];
+    if (tokens.some(token => token.type === 'user' && token.status !== 'valid')) throw new Error('Fix the users first');
+  },
+};
+
+const engine = createCommandEngine({ commands: [assign], tokens: { types: [user] } });
+engine.setQuery('assign @alice');
+// engine.getSnapshot().text   → 'assign' (drives search)
+// engine.getSnapshot().tokens → [{ type: 'user', value: 'alice', status: 'pending', … }]
+```
+
+## Token types
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Unique within its scope. |
+| `prefixMode` | `'required'` (default) or `'none'`. |
+| `prefix` | Required in `'required'` mode: one or more non-whitespace characters, recognized at the start of a word. |
+| `detect` | Required in `'none'` mode: a `RegExp` or `(word) => boolean` tested on whole words. It only detects; validation belongs to `match` or `values`. |
+| `values` | Optional value registry `{ value, label?, data? }[]`, matched case-insensitively. |
+| `match` | Custom validator `(value, { signal, type })`, synchronous or asynchronous. Mutually exclusive with `values`. |
+
+Without `values` or `match`, any non-empty value is valid. `defineTokenType()` infers the type of `data`. Invalid definitions throw `CmdlyError` with code `INVALID_TOKEN_TYPE`.
+
+### `match` results
+
+`match` returns a `boolean`, `{ valid: true, data }` or `{ valid: false, message? }`, possibly through a promise. A thrown error or a rejection gives the `error` status; any other value gives `error` with code `INVALID_TOKEN_MATCH`. An empty value (a bare prefix) is `invalid` and `match` is not called.
+
+Asynchronous validations are `pending` first. When a token changes or disappears, when the palette closes, or when the engine is destroyed, its `AbortSignal` is aborted and late results are ignored. An unchanged token keeps its state across keystrokes.
+
+## Statuses
+
+`pending`, `valid`, `invalid`, `error`, or `ambiguous`. Each `Token` carries `id` (stable for its lifetime), `type`, `candidates`, `prefix`, `value`, `raw`, `start`, `end`, `status`, and optionally `data`, `message`, `error` and `step` (the step where it was typed).
+
+## Scopes and collisions
+
+Global types come from `tokens.types` (engine option or `CommandPalette` prop). Commands and steps can declare local `tokens`: in a step, the step types come first, then the command chain (innermost first), then global types. A group command's types are active in its submenu.
+
+For each whitespace-separated word, resolution is deterministic:
+
+1. The longest active prefix wins, whatever its scope.
+2. Prefix-less types are tried only when no prefix matches.
+3. Among equal prefixes (or prefix-less types), the innermost scope wins: local types shadow global ones.
+4. Several types left in the same scope go to `tokens.resolve({ prefix, value, candidates, scope })`. Returning one of the candidate ids selects it; anything else leaves the token `ambiguous`. Cmdly never picks arbitrarily.
+
+```ts
+const tokens = {
+  types: [issue, label], // both use '#'
+  resolve: ({ value }) => (/^\d+$/.test(value) ? 'issue' : 'label'),
+};
+```
+
+## Dynamic registration
+
+`engine.tokens.register(type)` adds or replaces a global type and returns a disposer; `engine.tokens.unregister(id)` removes it; `engine.tokens.setValues(id, values)` replaces a value registry (not available for `match` types). `engine.setOptions({ tokens })` replaces all global types and the resolver. Local types follow their commands: register the command again to change them. Prefer `match` over `values` when data already lives elsewhere; Cmdly never requires duplicating it.
+
+## Captured tokens and execution
+
+Selecting an item captures the tokens of the current query along the workflow path, like answers. Going back drops the tokens captured by the steps you leave; going forward restores them. Captured tokens keep validating while you navigate and are aborted only when the palette closes.
+
+`run` receives `{ tokens, settleTokens }` as its second argument (inside the `context` object for registry commands, which also reaches `options` and `when`). `settleTokens()` resolves once no captured token is pending. Whether to wait, refuse or proceed is up to the command. These fields are present only when tokens are configured, so existing commands keep receiving exactly what they did before.
+
+## Feedback
+
+`snapshot.tokenFeedback` aggregates the current and captured tokens independently of any rendering: `status` (`error` > `ambiguous` > `invalid` > `pending` > `valid`, or `idle`), `pending` and `issues`. Empty tokens are ignored.
+
+`CommandPalette` renders it globally through `tokenFeedback`:
+
+- `'banner'` (default): lists issues and the validation in progress, linked to the input with `aria-describedby`; each issue is announced once in a polite live region.
+- `'loader'`: shows a global indicator and sets `aria-busy` on the list while tokens are pending.
+- `'none'`: renders nothing; read `state.tokenFeedback` from `useCommandEngine`.
+- A component: receives `{ feedback, tokens }` and owns its accessibility.
+
+Nothing is rendered when no token type is configured.
+
+## Limitations
+
+No value autocompletion, no quoted values or values containing spaces, prefixes are recognized only at the start of a word, `detect` is synchronous, there is no built-in debounce (use `signal`), no per-type feedback, local types cannot be registered independently of their command yet, and step option loaders are not reloaded when tokens change.

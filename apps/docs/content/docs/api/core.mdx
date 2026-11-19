@@ -8,6 +8,8 @@ description: "Public functions, engine actions and types."
 - `createCommandEngine({ commands, defaults?, callbacks?, strategies?, plugins? })` creates a legacy engine. `createCommandEngine({ registry, runtime?, ... })` creates a registry engine; the runtime provider is required when the registry requires it.
 - `createCommandRegistry(...)` creates a composable registry. See [registries](/docs/registries/create-compose) for methods.
 - `CommandUnavailableError` has a `qualifiedId`.
+- `createCommandEngine({ ..., tokens? })` accepts `TokenOptions` (`types`, `resolve`). Engines expose `engine.tokens` (`register`, `unregister`, `setValues`, `list`) and snapshots expose `text`, `tokens` and `tokenFeedback`. See [tokens](/docs/core/tokens).
+- `defineTokenType(type)` infers token data; `tokenize`, `validateTokenType` and `getTokenFeedback` are the pure building blocks used by the engine.
 
 ## Function overloads
 
