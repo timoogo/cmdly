@@ -178,8 +178,8 @@ describe('CommandBubble (trigger mode)', () => {
       void (<CommandBubble engine={engine} commands={commands} />);
       // @ts-expect-error session options belong to the external engine
       void (<CommandBubble engine={engine} plugins={[]} />);
-      // @ts-expect-error only the trigger mode exists for now
-      void (<CommandBubble commands={commands} mode="standalone" />);
+      // @ts-expect-error unknown mode
+      void (<CommandBubble commands={commands} mode="sidebar" />);
     }
   });
 });

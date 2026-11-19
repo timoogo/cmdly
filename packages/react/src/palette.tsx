@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
-import type { CommandView, EngineOptions, ResolvedTagDefinition, TokenOptions, WorkflowProgress } from '@cmdly/core';
-import { useClosedEngine, useCommandSession, type SessionEngine } from './session.js';
+import type { CommandView, ResolvedTagDefinition, WorkflowProgress } from '@cmdly/core';
+import { SessionHost, type ExternalEngineProps, type HostedSession, type OwnedEngineProps } from './session-host.js';
 import { useCommandCombobox } from './combobox.js';
 import { CommandSessionView } from './session-view.js';
 import type { TokenFeedbackMode } from './token-feedback.js';
@@ -32,49 +32,22 @@ export type PaletteViewProps = {
   renderTag?: (tag: string, definition: ResolvedTagDefinition, command: CommandView) => ReactNode;
 };
 
-/** The palette creates one engine per opening from these options and destroys it when it closes. */
-export type OwnedEngineProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & {
-  /** Global token types and collision resolver. Changes are applied to the open palette. */
-  tokens?: TokenOptions;
-  engine?: never;
-};
-
-/**
- * The palette displays a session owned by the caller (plain or registry engine). It never closes or destroys it:
- * Escape, Cancel and the final step's `close` only call `onOpenChange(false)`, and the session — query, path,
- * tokens, a running command — is kept for the next interface. Configure the engine itself (commands, tokens,
- * callbacks, plugins; `refreshRegistry()` after registry changes). When the engine closes (`engine.close()`,
- * completion), `onOpenChange(false)` is called and the engine cannot be shown again: create a new one.
- */
-export type ExternalEngineProps = {
-  /** A plain engine (`createCommandEngine({ commands })`) or a registry engine (`createCommandEngine({ registry })`). */
-  engine: SessionEngine;
-  commands?: never; defaults?: never; callbacks?: never; strategies?: never; plugins?: never; tokens?: never;
-};
-
 export type CommandPaletteProps = PaletteViewProps & (OwnedEngineProps | ExternalEngineProps);
+
+export type { ExternalEngineProps, OwnedEngineProps };
 
 const tabbable = 'input:not([disabled]), button:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
 
 export function CommandPalette(props: CommandPaletteProps) {
   if (!props.open) return null;
-  return props.engine ? <ExternalPalette {...props} engine={props.engine} /> : <OwnedPalette {...props as PaletteViewProps & OwnedEngineProps} />;
-}
-
-function OwnedPalette({ commands, defaults, callbacks, strategies, plugins, tokens, ...view }: PaletteViewProps & OwnedEngineProps) {
-  const engine = useCommandSession({ commands, defaults, callbacks, strategies, plugins, tokens });
-  return <PaletteSurface {...view} engine={engine} tokensConfigured={tokens !== undefined} />;
-}
-
-function ExternalPalette({ engine, onOpenChange, ...view }: PaletteViewProps & { engine: SessionEngine }) {
-  const dismiss = useCallback(() => onOpenChange(false), [onOpenChange]);
-  return <PaletteSurface {...view} onOpenChange={onOpenChange} engine={engine} tokensConfigured={false} onDismiss={dismiss} />;
+  const { tokenFeedback, open: _open, onOpenChange, label, id, renderProgress, renderTag, ...engine } = props;
+  return <SessionHost {...engine as OwnedEngineProps | ExternalEngineProps} onOpenChange={onOpenChange}>
+    {session => <PaletteSurface {...session} tokenFeedback={tokenFeedback} label={label} id={id} renderProgress={renderProgress} renderTag={renderTag} />}
+  </SessionHost>;
 }
 
 /** Modal container: initial focus, Tab containment and focus restoration around one session view. */
-function PaletteSurface({ engine, tokensConfigured, onDismiss, tokenFeedback = 'banner', onOpenChange, label = 'Command palette', id, renderProgress, renderTag }: PaletteViewProps & { engine: SessionEngine; tokensConfigured: boolean; onDismiss?: () => void }) {
-  const onClosed = useCallback(() => onOpenChange(false), [onOpenChange]);
-  useClosedEngine(engine, onClosed);
+function PaletteSurface({ engine, tokensConfigured, onDismiss, tokenFeedback = 'banner', label = 'Command palette', id, renderProgress, renderTag }: Omit<PaletteViewProps, 'open' | 'onOpenChange'> & HostedSession) {
   const dialog = useRef<HTMLDivElement>(null), previousFocus = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
