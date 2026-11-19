@@ -1,7 +1,7 @@
-import { useId, useLayoutEffect, useRef } from 'react';
+import { useId, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
-import type { Command, CommandEngine, FinalContext, Option } from '@cmdly/core';
-import { useCommandEngine } from './engine.js';
+import type { CommandView, FinalContext, Option } from '@cmdly/core';
+import type { SessionEngine } from './session.js';
 import { useTokenAnnouncement, type TokenFeedbackMode } from './token-feedback.js';
 
 export type CommandComboboxOptions = {
@@ -10,6 +10,11 @@ export type CommandComboboxOptions = {
   /** Token types are configured by the host; live regions are mounted from the start. */
   tokensConfigured: boolean;
   tokenFeedback: TokenFeedbackMode;
+  /**
+   * Leaves the interface (Escape at the root, Cancel, the final step's `close`). Defaults to `engine.close()`,
+   * which ends the session for good; pass a UI-only dismissal to keep an externally owned session alive.
+   */
+  onDismiss?: () => void;
 };
 
 const finalFocusable = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
@@ -19,8 +24,9 @@ const finalFocusable = 'button:not([disabled]), input:not([disabled]), select:no
  * pointer/keyboard active-item arbitration, step/final-phase focus and token feedback state.
  * Rendering and the surrounding container (modal, popover…) belong to the caller.
  */
-export function useCommandCombobox(engine: CommandEngine, { root, tokensConfigured, tokenFeedback }: CommandComboboxOptions) {
-  const { state, actions } = useCommandEngine(engine);
+export function useCommandCombobox(engine: SessionEngine, { root, tokensConfigured, tokenFeedback, onDismiss }: CommandComboboxOptions) {
+  const state = useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot), actions = engine;
+  const dismiss = onDismiss ?? actions.close;
   const input = useRef<HTMLInputElement>(null);
   const pointer = useRef<{ x: number; y: number } | null>(null), keyboardNavigation = useRef(false);
   const listId = useId(), feedbackId = useId();
@@ -38,7 +44,7 @@ export function useCommandCombobox(engine: CommandEngine, { root, tokensConfigur
     if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && state.arrowNavigation && event.target === input.current && !state.query && !event.nativeEvent.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
       if (event.key === 'ArrowLeft' && state.canBack && !state.running) { event.preventDefault(); back(); }
       else if (event.key === 'ArrowRight' && state.canForward) { event.preventDefault(); actions.forward(); }
-    } else if (event.key === 'Escape') { event.preventDefault(); if (state.canBack && !state.running) back(); else actions.close(); }
+    } else if (event.key === 'Escape') { event.preventDefault(); if (state.canBack && !state.running) back(); else dismiss(); }
     else if (event.key === 'ArrowDown' && state.phase !== 'final') { event.preventDefault(); keyboardNavigation.current = true; actions.setActive(state.items.length ? (state.active + 1) % state.items.length : 0); }
     else if (event.key === 'ArrowUp' && state.phase !== 'final') { event.preventDefault(); keyboardNavigation.current = true; actions.setActive(state.items.length ? (state.active - 1 + state.items.length) % state.items.length : 0); }
     else if (event.key === 'Enter' && event.target === input.current) { event.preventDefault(); actions.select(state.active); }
@@ -58,7 +64,7 @@ export function useCommandCombobox(engine: CommandEngine, { root, tokensConfigur
   const busy = tokenFeedback === 'loader' && feedback.pending.length > 0;
   const listVisible = !state.loading && !state.running;
 
-  const finalContext: FinalContext = { answers: state.answers, summary: state.summary, status: state.status, error: state.error, result: state.result, execute: actions.execute, back, close: actions.close };
+  const finalContext: FinalContext = { answers: state.answers, summary: state.summary, status: state.status, error: state.error, result: state.result, execute: () => actions.execute(), back, close: dismiss };
   const inputProps = {
     ref: input, value: state.query, onChange: (event: { target: { value: string } }) => actions.setQuery(event.target.value),
     role: 'combobox', 'aria-expanded': true as const, 'aria-controls': listVisible ? listId : undefined,
@@ -78,8 +84,8 @@ export function useCommandCombobox(engine: CommandEngine, { root, tokensConfigur
   });
 
   return {
-    state, actions, back, onKeyDown, inputProps, listboxProps, getOptionProps, listVisible,
-    visibleItems: visibleItems as { item: Command | Option; index: number }[], message, finalContext,
+    state, actions, back, dismiss, onKeyDown, inputProps, listboxProps, getOptionProps, listVisible,
+    visibleItems: visibleItems as { item: CommandView | Option; index: number }[], message, finalContext,
     tokens: { feedback, showFeedback, builtIn, announcement, bannerVisible, busy, feedbackId, mode: tokenFeedback },
   };
 }

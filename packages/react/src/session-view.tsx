@@ -13,7 +13,7 @@ const visuallyHidden = { position: 'absolute', width: 1, height: 1, padding: 0, 
 
 /** Internal. Default, unstyled rendering of a session: search/step combobox, final phase, token feedback and progress. */
 export function CommandSessionView({ combobox, renderProgress, renderTag }: CommandSessionViewProps) {
-  const { state, actions, back, inputProps, listboxProps, getOptionProps, listVisible, visibleItems, message, finalContext, tokens } = combobox;
+  const { state, actions, back, dismiss, inputProps, listboxProps, getOptionProps, listVisible, visibleItems, message, finalContext, tokens } = combobox;
   const CustomFeedback = typeof tokens.mode === 'function' ? tokens.mode : undefined;
   const tokenView = <>
     {tokens.builtIn && tokens.showFeedback && <span data-cmdly-token-announcer role="status" aria-live="polite" style={visuallyHidden}>{tokens.announcement}</span>}
@@ -33,12 +33,12 @@ export function CommandSessionView({ combobox, renderProgress, renderTag }: Comm
         {state.canBack && <button type="button" onClick={back} aria-disabled={state.running || undefined}>Back</button>}
         {state.finalStep.timing === 'before' && <button type="button" onClick={() => void actions.execute()} aria-disabled={state.running || undefined}>{state.status === 'error' ? 'Retry' : 'Confirm'}</button>}
         {state.finalStep.timing === 'after' && state.status === 'error' && <button type="button" onClick={() => void actions.execute()}>Retry</button>}
-        <button type="button" onClick={actions.close}>Cancel</button>
+        <button type="button" onClick={dismiss}>Cancel</button>
       </>}
     </> : <>
       <label>{state.step?.label ?? (state.canBack ? state.menuLabel : 'Search commands')}<input {...inputProps} /></label>
       {state.canBack && <button type="button" onClick={back} aria-disabled={state.running || undefined}>Back</button>}
-      <button type="button" onClick={actions.close}>Cancel</button>
+      <button type="button" onClick={dismiss}>Cancel</button>
       {state.loading && <p role="status">Loading options…</p>}
       {state.running && <p role="status">Running command…</p>}
       {message && <div role="alert">{message}{(state.loadFailed || (state.phase === "final" && state.status === "error")) && <button type="button" onClick={actions.retry}>Retry</button>}</div>}

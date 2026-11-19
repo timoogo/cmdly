@@ -5,7 +5,7 @@ description: "Public React exports."
 
 `useCommandEngine(engine)` returns `{ state, actions }`; overloads preserve registry runtime typing. It subscribes to the supplied engine and does not create or destroy it.
 
-`CommandPalette` takes `commands`, `open`, `onOpenChange`, optional defaults, callbacks, strategies, plugins, `renderProgress`, `tokens` (global token types, applied live) and `tokenFeedback` (`'banner'` by default, `'loader'`, `'none'` or a component receiving `TokenFeedbackProps`). `describeTokenIssue(token)` returns the default issue text. `CommandPaletteProps` is its public prop type. The adapter also re-exports the public core API.
+`CommandPalette` takes either `commands` (it then creates and destroys one engine per opening) or an external `engine` it never closes or destroys (Escape and Cancel only call `onOpenChange(false)`; configure that engine yourself), plus `open`, `onOpenChange`, an optional `label` (dialog name, default `'Command palette'`), optional defaults, callbacks, strategies, plugins, `renderProgress`, `tokens` (global token types, applied live) and `tokenFeedback` (`'banner'` by default, `'loader'`, `'none'` or a component receiving `TokenFeedbackProps`). `describeTokenIssue(token)` returns the default issue text. `CommandPaletteProps` is its public prop type. The adapter also re-exports the public core API.
 
 ## Signatures
 
@@ -15,10 +15,16 @@ useCommandEngine<TRuntime, TRuntimeRequired extends boolean>(
 ): { state: EngineSnapshot<CommandView, RegistryRuntime<TRuntime>>; actions: RegistryCommandEngine<TRuntime, TRuntimeRequired> };
 useCommandEngine(engine: CommandEngine): { state: EngineSnapshot; actions: CommandEngine };
 
-type CommandPaletteProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & {
+type CommandPaletteProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  label?: string;
+  tokenFeedback?: TokenFeedbackMode;
   renderProgress?: (progress: WorkflowProgress) => ReactNode;
-};
+  renderTag?: (tag: string, definition: ResolvedTagDefinition, command: CommandView) => ReactNode;
+} & (
+  | (Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & { tokens?: TokenOptions; engine?: never })
+  | { engine: CommandEngine | RegistryCommandEngine; commands?: never; defaults?: never; callbacks?: never; strategies?: never; plugins?: never; tokens?: never }
+);
 function CommandPalette(props: CommandPaletteProps): React.JSX.Element | null;
 ```

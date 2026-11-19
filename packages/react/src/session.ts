@@ -1,18 +1,18 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createCommandEngine } from '@cmdly/core';
-import type { CommandEngine, EngineOptions } from '@cmdly/core';
+import type { CommandEngine, CommandView, EngineOptions } from '@cmdly/core';
 
-export type CommandSessionOptions = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins' | 'tokens'> & {
-  /** Called once the engine reports `closed`. Keep it stable (e.g. `useCallback`): it is an effect dependency. */
-  onClosed: () => void;
-};
+export type CommandSessionOptions = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins' | 'tokens'>;
+
+/** Engine operations an interface needs to display a session; satisfied by plain and registry engines. */
+export type SessionEngine = Pick<CommandEngine<CommandView, any>, 'getSnapshot' | 'subscribe' | 'select' | 'back' | 'forward' | 'setQuery' | 'setActive' | 'retry' | 'execute' | 'close'>;
 
 /**
  * Internal. Owns one engine — one session — for the lifetime of the calling component:
- * creates it on mount, keeps its options in sync, sets up plugins, reports closing and
- * destroys it on unmount (a StrictMode remount keeps the same engine alive).
+ * creates it on mount, keeps its options in sync, sets up plugins and destroys it on
+ * unmount (a StrictMode remount keeps the same engine alive).
  */
-export function useCommandSession({ commands, defaults, callbacks, strategies, plugins, tokens, onClosed }: CommandSessionOptions): CommandEngine {
+export function useCommandSession({ commands, defaults, callbacks, strategies, plugins, tokens }: CommandSessionOptions): CommandEngine {
   const engine = useMemo(() => createCommandEngine({ commands, defaults, callbacks, strategies, tokens }), []);
   const appliedTokens = useRef(tokens);
   useLayoutEffect(() => { if (appliedTokens.current !== tokens) { appliedTokens.current = tokens; engine.setOptions({ tokens: tokens ?? { types: [] } }); } }, [engine, tokens]);
@@ -44,7 +44,14 @@ export function useCommandSession({ commands, defaults, callbacks, strategies, p
     }
     return cleanupAll;
   }, [engine, plugins]);
+  return engine;
+}
+
+/**
+ * Internal. Calls `onClosed` once the engine reports `closed` (definitive in the core), whoever owns it.
+ * Keep `onClosed` stable (e.g. `useCallback`): it is an effect dependency.
+ */
+export function useClosedEngine(engine: SessionEngine, onClosed: () => void): void {
   const closed = useSyncExternalStore(engine.subscribe, () => engine.getSnapshot().closed, () => engine.getSnapshot().closed);
   useEffect(() => { if (closed) onClosed(); }, [closed, onClosed]);
-  return engine;
 }

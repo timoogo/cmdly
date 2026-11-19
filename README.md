@@ -191,6 +191,11 @@ Optional callbacks `onNavigate`, `onExecute`, `onError`, and `onClose` observe t
 
 The previous `CommandPalette` API remains available from `@cmdly/react`; existing command objects remain valid. Migrate incrementally by importing the engine from `@cmdly/core` only where direct control is needed.
 
+### External engine
+
+Pass `engine` instead of `commands` to display a session you own, for example a registry engine (`createCommandEngine({ registry, runtime })`) or one session shown successively by several interfaces. `engine` excludes `commands`, `defaults`, `callbacks`, `strategies`, `plugins` and `tokens`: configure the engine itself, and call `engine.refreshRegistry()` after registry changes. The palette never closes or destroys an external engine: Escape at the root, Cancel and the final step's `close` only call `onOpenChange(false)`, and the query, path, tokens and any running command are kept for the next interface. `engine.close()` is definitive: when the engine closes itself (after a successful run, or because you called it), `onOpenChange(false)` is called and a closed engine is not shown again; create a new one for the next session, and `destroy()` it when you no longer need it. `label` sets the dialog's accessible name (default `'Command palette'`).
+
+
 ## Composable command registries
 
 `createCommandRegistry()` from `@cmdly/core` creates a headless registry. It can hold application-wide commands and mount temporary registries for a page, component, or selection:

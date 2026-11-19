@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Command, CommandEngine } from '@cmdly/core';
-import { useCommandSession, type CommandSessionOptions } from './session.js';
+import { useClosedEngine, useCommandSession, type CommandSessionOptions } from './session.js';
 import { useCommandCombobox } from './combobox.js';
 
 afterEach(cleanup);
@@ -23,21 +23,19 @@ describe('useCommandSession', () => {
   const commands: Command[] = [{ id: 'a', label: 'Alpha', run: vi.fn() }];
 
   it('keeps one engine across rerenders, syncs options and destroys it on unmount', async () => {
-    const onClosed = vi.fn();
-    const { result, rerender, unmount } = renderHook((props: CommandSessionOptions) => useCommandSession(props), { initialProps: { commands, onClosed } });
+    const { result, rerender, unmount } = renderHook((props: CommandSessionOptions) => useCommandSession(props), { initialProps: { commands } });
     const engine = result.current;
-    rerender({ commands: [{ id: 'b', label: 'Beta', run: vi.fn() }], onClosed });
+    rerender({ commands: [{ id: 'b', label: 'Beta', run: vi.fn() }] });
     expect(result.current).toBe(engine);
     expect(engine.getSnapshot().items.map(item => item.label)).toEqual(['Beta']);
     unmount();
     await flush();
     expect(alive(engine)).toBe(false);
-    expect(onClosed).not.toHaveBeenCalled();
   });
 
   it('survives the StrictMode effect replay', async () => {
-    const setup = vi.fn(), onClosed = vi.fn();
-    const { result } = renderHook(() => useCommandSession({ commands, plugins: [{ setup }], onClosed }), { wrapper: StrictMode });
+    const setup = vi.fn();
+    const { result } = renderHook(() => useCommandSession({ commands, plugins: [{ setup }] }), { wrapper: StrictMode });
     await flush();
     expect(alive(result.current)).toBe(true);
     expect(setup).toHaveBeenCalledTimes(2);
@@ -45,7 +43,7 @@ describe('useCommandSession', () => {
 
   it('reports closing once the engine is closed', async () => {
     const onClosed = vi.fn();
-    const { result } = renderHook(() => useCommandSession({ commands, onClosed }));
+    const { result } = renderHook(() => { const engine = useCommandSession({ commands }); useClosedEngine(engine, onClosed); return engine; });
     act(() => result.current.close());
     await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1));
   });
@@ -55,7 +53,8 @@ describe('useCommandCombobox', () => {
   // A custom view built only from the primitives, without the palette's markup or container.
   function Custom({ commands, onClosed }: { commands: Command[]; onClosed: () => void }) {
     const root = useRef<HTMLDivElement>(null);
-    const engine = useCommandSession({ commands, onClosed });
+    const engine = useCommandSession({ commands });
+    useClosedEngine(engine, onClosed);
     const { inputProps, listboxProps, getOptionProps, visibleItems, onKeyDown, listVisible } = useCommandCombobox(engine, { root, tokensConfigured: false, tokenFeedback: 'banner' });
     return <section ref={root} onKeyDown={onKeyDown}>
       <input aria-label="Commands" {...inputProps} />
