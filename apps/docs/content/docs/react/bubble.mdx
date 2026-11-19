@@ -1,0 +1,55 @@
+---
+title: "Command Bubble"
+description: "A floating or inline trigger opening the palette or its own popover."
+---
+
+`CommandBubble` takes the palette's props (`commands` or `engine`, `tokens`, `tokenFeedback`, `renderProgress`, `renderTag`, `children`) plus:
+
+- `mode`: `'trigger'` (default) opens the modal `CommandPalette`; `'standalone'` opens a non-modal popover (`role="dialog"` without `aria-modal`, `data-cmdly-bubble-popover`) inside the bubble, with the same search, steps, tokens and final step.
+- `layout`: `'floating'` (default, `position: fixed` in a corner: `placement` `'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'`, `offset` 16 px) or `'inline'` (in the layout flow). A floating popover opens towards the viewport; an inline one opens below, left-aligned.
+- State: uncontrolled (`defaultOpen`) or controlled (`open` + `onOpenChange`, called on every change). A ref exposes `open()`, `close()` and `toggle()`; they go through `onOpenChange` too. No shortcut is registered.
+- `label`: accessible name of the trigger and of the palette or popover (default `'Command palette'`). `trigger`: button content, or a function rendering your own element (see Customization).
+- `className` and `style` apply to the wrapper (`data-cmdly-bubble`, `data-mode`, `data-layout`, `data-placement`, `data-state`). In standalone mode the popover is inside the wrapper: style the trigger with a child selector (`.my-bubble > button`).
+
+The standalone popover closes on an outside press, when focus moves outside the bubble (Tab is not contained), on Escape at the root or on the trigger, on Cancel, and after a successful run unless the command keeps its final step open (`closeOnComplete: false`). Escape inside a step goes back. Focus returns to the trigger after Escape, Cancel or completion, not after an outside press or Tab. In trigger mode the palette contains Tab and restores focus to the trigger. Cmdly expects one bubble per application and warns in development when several are mounted.
+
+```tsx
+import { useEffect, useRef, useState } from 'react';
+import { CommandBubble, createCommandEngine, type Command, type CommandBubbleHandle } from '@cmdly/react';
+
+const commands: Command[] = [{ id: 'hello', label: 'Say hello', run: () => console.log('Hello!') }];
+
+// Trigger mode (default): a floating button opening the modal palette; uncontrolled, with a ref.
+export function Trigger() {
+  const bubble = useRef<CommandBubbleHandle>(null); // open(), close(), toggle()
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); bubble.current?.toggle(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  return <CommandBubble ref={bubble} commands={commands} placement="bottom-right" trigger={<span aria-hidden="true">⌘</span>} />;
+}
+
+// Standalone mode: a non-modal popover next to an inline trigger; controlled.
+export function Standalone() {
+  const [open, setOpen] = useState(false);
+  return <CommandBubble mode="standalone" layout="inline" commands={commands} open={open} onOpenChange={setOpen} label="Actions" />;
+}
+
+// External engine: one session you own, kept across openings and shared with other interfaces.
+const shared = createCommandEngine({ commands });
+export const Shared = () => <CommandBubble mode="standalone" engine={shared} />;
+```
+
+## Sessions: owned or external
+
+| | Owned (`commands`) | External (`engine`) |
+|---|---|---|
+| Created | at each opening | by you (`createCommandEngine`) |
+| Escape at the root, Cancel, outside press, Tab out | closes the session (a running command is aborted) | hides the interface only; query, step, tokens and a running command are kept |
+| Completion | closes the session and the interface | the engine closes itself; the interface follows |
+| Destroyed | when the interface closes | never by Cmdly: call `engine.destroy()` |
+
+Hiding an interface is not closing a session. `onOpenChange(false)` only hides; `engine.close()` ends a session for good (`closed` never resets, `callbacks.onClose` runs) and a closed engine is not shown again: create a new one. To share a session, pass the same engine to several interfaces (palette, bubble, headless view), one at a time: each resumes where the previous one stopped. Configure an external engine yourself (`setOptions`, `tokens`, `refreshRegistry()` for registries).

@@ -4,6 +4,7 @@ import type { EnginePlugin, EngineStrategies } from '@cmdly/core';
 import { createCommands, type Activity } from './commands';
 import { Progress } from './components/progress';
 import { CompactContent, PillTrigger } from './components/custom-bubble';
+import { SharedSession } from './components/shared-session';
 import { createTokenCommands, tokenOptions } from './tokens';
 import './style.css';
 
@@ -65,7 +66,8 @@ export default function App() {
           <h2>Tokens</h2><p>Type <code>@alice</code>, <code>@nobody</code>, <code>#42</code>, <code>#bug</code> or <code>bob@example.com</code>. Tokens never filter commands: the remaining text does.</p>
           <label className="toggle">Token feedback <select value={feedbackMode} onChange={(event) => setFeedbackMode(event.target.value)}>{Object.keys(feedbackModes).map(mode => <option key={mode}>{mode}</option>)}</select></label>
           <h2>Command Bubble</h2><p>The ⌘ bubble in the corner opens the palette (trigger) or its own compact popover (standalone); custom replaces its trigger and content with the headless API.</p>
-          <label className="toggle">Bubble mode <select value={bubbleMode} onChange={(event) => { setOpen(false); setBubbleMode(event.target.value as 'trigger' | 'standalone' | 'custom'); }}><option>trigger</option><option>standalone</option><option>custom</option></select></label></div>
+          <label className="toggle">Bubble mode <select value={bubbleMode} onChange={(event) => { setOpen(false); setBubbleMode(event.target.value as 'trigger' | 'standalone' | 'custom'); }}><option>trigger</option><option>standalone</option><option>custom</option></select></label>
+          <SharedSession /></div>
         <div><h2>Activity</h2><div className="activity" aria-live="polite">{activity.length ? activity.map((entry, index) => <p key={index}><strong>{entry.title}</strong><br />{entry.detail}</p>) : <p>Run a command to see what happens here.</p>}</div></div>
       </section>
       {/* The bubble shares its open state with the launch button and the ⌘/Ctrl K shortcut. */}

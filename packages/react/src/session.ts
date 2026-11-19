@@ -5,7 +5,7 @@ import type { CommandEngine, CommandView, EngineCallbacks, EngineOptions } from 
 export type CommandSessionOptions = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins' | 'tokens'>;
 
 /** Engine operations an interface needs to display a session; satisfied by plain and registry engines. */
-export type SessionEngine = Pick<CommandEngine<CommandView, any>, 'getSnapshot' | 'subscribe' | 'select' | 'back' | 'forward' | 'setQuery' | 'setActive' | 'retry' | 'execute' | 'close'>;
+export type CommandSessionEngine = Pick<CommandEngine<CommandView, any>, 'getSnapshot' | 'subscribe' | 'select' | 'back' | 'forward' | 'setQuery' | 'setActive' | 'retry' | 'execute' | 'close'>;
 
 /**
  * Owns one engine — one session — for the lifetime of the calling component: creates it on mount, keeps
@@ -74,7 +74,7 @@ export function useCommandSession({ commands, defaults, callbacks, strategies, p
  * Internal. Calls `onClosed` once the engine reports `closed` (definitive in the core), whoever owns it.
  * Keep `onClosed` stable (e.g. `useCallback`): it is an effect dependency.
  */
-export function useClosedEngine(engine: SessionEngine, onClosed: () => void): void {
+export function useClosedEngine(engine: CommandSessionEngine, onClosed: () => void): void {
   const closed = useSyncExternalStore(engine.subscribe, () => engine.getSnapshot().closed, () => engine.getSnapshot().closed);
   useEffect(() => { if (closed) onClosed(); }, [closed, onClosed]);
 }

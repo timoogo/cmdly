@@ -195,6 +195,10 @@ The previous `CommandPalette` API remains available from `@cmdly/react`; existin
 
 Pass `engine` instead of `commands` to display a session you own, for example a registry engine (`createCommandEngine({ registry, runtime })`) or one session shown successively by several interfaces. `engine` excludes `commands`, `defaults`, `callbacks`, `strategies`, `plugins` and `tokens`: configure the engine itself, and call `engine.refreshRegistry()` after registry changes. The palette never closes or destroys an external engine: Escape at the root, Cancel and the final step's `close` only call `onOpenChange(false)`, and the query, path, tokens and any running command are kept for the next interface. `engine.close()` is definitive: when the engine closes itself (after a successful run, or because you called it), `onOpenChange(false)` is called and a closed engine is not shown again; create a new one for the next session, and `destroy()` it when you no longer need it. `label` sets the dialog's accessible name (default `'Command palette'`).
 
+### Sessions: hiding versus closing
+
+An interface showing an owned session (`commands`) closes it when the interface closes (Escape at the root, Cancel, outside press, Tab out of a standalone bubble, completion), which aborts a running command; the next opening starts a new session. An interface showing an external engine (`engine`) only hides: query, step, tokens and a running command are kept, and the same engine can be shown successively by the palette, the bubble or a headless view, each resuming where the previous one stopped. `engine.close()` is the definitive close (`callbacks.onClose`, `closed` never resets); Cmdly never calls it, nor `destroy()`, on an external engine.
+
 ### Command Bubble
 
 `CommandBubble` is a trigger button that opens and closes a `CommandPalette`; it takes the palette's props (`commands` or `engine`, `tokens`, `tokenFeedback`, …) and the same session rules apply.

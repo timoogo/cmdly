@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import type { ReactNode } from 'react';
 import type { EngineOptions, TokenOptions } from '@cmdly/core';
-import { useClosedEngine, useCommandSession, type SessionEngine } from './session.js';
+import { useClosedEngine, useCommandSession, type CommandSessionEngine } from './session.js';
 
 /** The interface creates one engine per opening from these options and destroys it when it closes. */
 export type OwnedEngineProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & {
@@ -19,13 +19,13 @@ export type OwnedEngineProps = Pick<EngineOptions, 'commands' | 'defaults' | 'ca
  */
 export type ExternalEngineProps = {
   /** A plain engine (`createCommandEngine({ commands })`) or a registry engine (`createCommandEngine({ registry })`). */
-  engine: SessionEngine;
+  engine: CommandSessionEngine;
   commands?: never; defaults?: never; callbacks?: never; strategies?: never; plugins?: never; tokens?: never;
 };
 
 /** What a container needs to display a session, whoever owns it. */
 export type HostedSession = {
-  engine: SessionEngine;
+  engine: CommandSessionEngine;
   /** UI-only dismissal for external engines; `undefined` lets the combobox close an owned engine. */
   onDismiss?: () => void;
 };
@@ -50,7 +50,7 @@ function OwnedHost({ commands, defaults, callbacks, strategies, plugins, tokens,
   return <>{children({ engine })}</>;
 }
 
-function ExternalHost({ engine, onOpenChange, children }: SessionHostProps & { engine: SessionEngine }) {
+function ExternalHost({ engine, onOpenChange, children }: SessionHostProps & { engine: CommandSessionEngine }) {
   const onClosed = useCallback(() => onOpenChange(false), [onOpenChange]);
   useClosedEngine(engine, onClosed);
   return <>{children({ engine, onDismiss: onClosed })}</>;

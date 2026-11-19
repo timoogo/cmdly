@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
-import type { CSSProperties, KeyboardEvent } from 'react';
-import type { CommandView, EngineSnapshot, FinalContext, Option } from '@cmdly/core';
-import type { SessionEngine } from './session.js';
+import type { CSSProperties, KeyboardEvent, RefObject } from 'react';
+import type { CommandView, EngineSnapshot, FinalContext, Option, TokenFeedback } from '@cmdly/core';
+import type { CommandSessionEngine } from './session.js';
 import { useTokenAnnouncement, type TokenFeedbackMode } from './token-feedback.js';
 
 export type CommandComboboxOptions = {
@@ -28,7 +28,7 @@ const finalFocusable = 'button:not([disabled]), input:not([disabled]), select:no
  * The engine is a session from `useCommandSession` (closed by `dismiss`) or one you created and keep
  * (pass `onDismiss` to hide your interface without closing it).
  */
-export function useCommandCombobox(engine: SessionEngine, { tokenFeedback = 'banner', onDismiss }: CommandComboboxOptions = {}) {
+export function useCommandCombobox(engine: CommandSessionEngine, { tokenFeedback = 'banner', onDismiss }: CommandComboboxOptions = {}): CommandCombobox {
   const state: EngineSnapshot<CommandView> = useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot), actions = engine;
   const root = useRef<HTMLElement | null>(null);
   const setRoot = useRef((node: HTMLElement | null) => { root.current = node; }).current;
@@ -73,13 +73,13 @@ export function useCommandCombobox(engine: SessionEngine, { tokenFeedback = 'ban
   const finalContext: FinalContext = { answers: state.answers, summary: state.summary, status: state.status, error: state.error, result: state.result, execute: () => actions.execute(), back, close: dismiss };
   const inputProps = {
     ref: input, value: state.query, onChange: (event: { target: { value: string } }) => actions.setQuery(event.target.value),
-    role: 'combobox', 'aria-expanded': true as const, 'aria-controls': listVisible ? listId : undefined,
+    role: 'combobox' as const, 'aria-expanded': true as const, 'aria-controls': listVisible ? listId : undefined,
     'aria-activedescendant': state.items.length && listVisible ? `${listId}-${state.active}` : undefined, 'aria-autocomplete': 'list' as const,
     'aria-describedby': bannerVisible ? feedbackId : undefined, readOnly: state.running, 'aria-disabled': state.running || undefined,
   };
-  const listboxProps = { role: 'listbox', id: listId, 'aria-label': state.step?.label ?? state.menuLabel, 'aria-busy': busy || undefined };
+  const listboxProps = { role: 'listbox' as const, id: listId, 'aria-label': state.step?.label ?? state.menuLabel, 'aria-busy': busy || undefined };
   const getOptionProps = (index: number) => ({
-    id: `${listId}-${index}`, role: 'option', 'aria-selected': index === state.active, 'aria-posinset': index + 1, 'aria-setsize': state.items.length,
+    id: `${listId}-${index}`, role: 'option' as const, 'aria-selected': index === state.active, 'aria-posinset': index + 1, 'aria-setsize': state.items.length,
     onMouseMove: (event: { clientX: number; clientY: number; movementX?: number; movementY?: number }) => {
       const previous = pointer.current;
       const moved = previous ? previous.x !== event.clientX || previous.y !== event.clientY : (event.movementX || 0) !== 0 || (event.movementY || 0) !== 0;
@@ -89,43 +89,61 @@ export function useCommandCombobox(engine: SessionEngine, { tokenFeedback = 'ban
     onClick: () => actions.select(index),
   });
 
-  const announcer = builtIn && showFeedback ? { role: 'status', 'aria-live': 'polite' as const, 'data-cmdly-token-announcer': '', style: visuallyHidden, children: announcement } : null;
+  const announcer = builtIn && showFeedback ? { role: 'status' as const, 'aria-live': 'polite' as const, 'data-cmdly-token-announcer': '' as const, style: visuallyHidden, children: announcement } : null;
 
   return {
-    /** Engine snapshot: phase, query, items, active index, step, loading/running, error, progress… */
-    state,
-    /** The engine's actions (`select`, `setQuery`, `setActive`, `execute`, `retry`, `forward`…). */
-    actions,
-    /** Previous step, keeping focus in the input. */
-    back,
-    /** Leaves the interface: `onDismiss` when given, otherwise `engine.close()`. */
-    dismiss,
-    /** For the element containing the view: keyboard handling and final-step focus. */
-    rootProps: { ref: setRoot, onKeyDown },
-    inputProps, listboxProps, getOptionProps,
-    /** `false` while loading or running: render the listbox only when `true`. */
-    listVisible,
-    /** Items to render with their index in `state.items` (paged in steps by `maxVisibleItems`). */
-    visibleItems: visibleItems as { item: CommandView | Option; index: number }[],
-    /** Readable error message, or `null`. */
-    message,
-    /** Context for the final phase (summary, status, execute, back, close). */
-    finalContext,
-    tokens: {
-      /** Live token feedback (`issues`, `pending`, `status`). */
-      feedback,
-      /** Token parsing is possible in this session: render token feedback regions from now on. */
-      showFeedback,
-      /** Props for a visually hidden polite live region announcing token issues; `null` when none should be mounted. */
-      announcer,
-      /** `true` when the built-in banner has content; its element must have `id={feedbackId}` (referenced by the input). */
-      bannerVisible, feedbackId,
-      /** Validation pending in `'loader'` mode. */
-      busy,
-      mode: tokenFeedback,
-    },
+    state, actions, back, dismiss, rootProps: { ref: setRoot, onKeyDown }, inputProps, listboxProps, getOptionProps, listVisible,
+    visibleItems: visibleItems as { item: CommandView | Option; index: number }[], message, finalContext,
+    tokens: { feedback, showFeedback, announcer, bannerVisible, feedbackId, busy, mode: tokenFeedback },
   };
 }
 
-/** Everything a custom session view needs; see `useCommandCombobox`. */
-export type CommandCombobox = ReturnType<typeof useCommandCombobox>;
+/** Everything a custom session view needs; returned by `useCommandCombobox`. */
+export type CommandCombobox = {
+  /** Engine snapshot: phase, query, items, active index, step, loading/running, error, progress, final step… */
+  state: EngineSnapshot<CommandView>;
+  /** The engine's actions (`select`, `setQuery`, `setActive`, `execute`, `retry`, `forward`…). */
+  actions: CommandSessionEngine;
+  /** Previous step, keeping focus in the input. */
+  back: () => void;
+  /** Leaves the interface: `onDismiss` when given, otherwise `engine.close()` (definitive). */
+  dismiss: () => void;
+  /** For the element containing the view: keyboard handling (every key except Tab) and final-step focus. */
+  rootProps: { ref: (node: HTMLElement | null) => void; onKeyDown: (event: KeyboardEvent<HTMLElement>) => void };
+  /** For the text input: value, change handler, combobox ARIA, initial and per-step focus. Add an accessible name. */
+  inputProps: {
+    ref: RefObject<HTMLInputElement | null>; value: string; onChange: (event: { target: { value: string } }) => void;
+    role: 'combobox'; 'aria-expanded': true; 'aria-controls': string | undefined; 'aria-activedescendant': string | undefined;
+    'aria-autocomplete': 'list'; 'aria-describedby': string | undefined; readOnly: boolean; 'aria-disabled': true | undefined;
+  };
+  /** For the list element; render it only when `listVisible`. */
+  listboxProps: { role: 'listbox'; id: string; 'aria-label': string; 'aria-busy': true | undefined };
+  /** For each item of `visibleItems`, by its `index`: ARIA, pointer activation and selection. */
+  getOptionProps: (index: number) => {
+    id: string; role: 'option'; 'aria-selected': boolean; 'aria-posinset': number; 'aria-setsize': number;
+    onMouseMove: (event: { clientX: number; clientY: number; movementX?: number; movementY?: number }) => void;
+    onClick: () => void;
+  };
+  /** `false` while loading or running. */
+  listVisible: boolean;
+  /** Items to render with their index in `state.items` (paged in steps by `maxVisibleItems`). */
+  visibleItems: { item: CommandView | Option; index: number }[];
+  /** Readable error message, or `null`. */
+  message: string | null;
+  /** Context for the final phase: pass it to `state.finalStep.render`, or use it for your own summary. */
+  finalContext: FinalContext;
+  tokens: {
+    /** Live token feedback (`issues`, `pending`, `status`). */
+    feedback: TokenFeedback;
+    /** Token parsing is possible in this session: render token feedback from now on. */
+    showFeedback: boolean;
+    /** Props for a visually hidden polite live region announcing token issues; `null` when none should be mounted. */
+    announcer: { role: 'status'; 'aria-live': 'polite'; 'data-cmdly-token-announcer': ''; style: CSSProperties; children: string } | null;
+    /** The built-in banner has content; render it with `id={feedbackId}` (referenced by the input). */
+    bannerVisible: boolean;
+    feedbackId: string;
+    /** Validation pending in `'loader'` mode. */
+    busy: boolean;
+    mode: TokenFeedbackMode;
+  };
+};

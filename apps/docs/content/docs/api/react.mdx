@@ -32,5 +32,8 @@ function CommandPalette(props: CommandPaletteProps): React.JSX.Element | null;
 // CommandBubbleProps['trigger']: ReactNode | ((props: CommandBubbleTriggerProps) => ReactNode)
 
 useCommandSession(options: Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins' | 'tokens'>): CommandEngine;
-useCommandCombobox(engine: CommandEngine | RegistryCommandEngine, options?: { tokenFeedback?: TokenFeedbackMode; onDismiss?: () => void }): CommandCombobox;
+// CommandSessionEngine: the engine operations an interface needs; any plain or registry engine satisfies it.
+useCommandCombobox(engine: CommandSessionEngine, options?: { tokenFeedback?: TokenFeedbackMode; onDismiss?: () => void }): CommandCombobox;
+// CommandCombobox is an explicit exported type: state, actions, back, dismiss, rootProps, inputProps, listboxProps,
+// getOptionProps, listVisible, visibleItems, message, finalContext, tokens (see React › Customization).
 ```

@@ -41,3 +41,9 @@
 .compact-feedback{color:#fca5a5;font-size:13px}
 .compact-summary{list-style:none;margin:0;padding:0}
 .compact-actions{display:flex;gap:6px;justify-content:flex-end}
+.shared-actions{display:flex;flex-wrap:wrap;gap:8px}
+.shared-actions button,.shared-status button{padding:6px 10px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:inherit;font:inherit;cursor:pointer}
+.shared-status{color:#a1a1aa;font-size:13px}
+.shared-panel{margin-top:8px;border:1px solid #27272a;border-radius:12px;background:#09090b;max-height:280px;overflow:auto}
+.shared-panel .compact-list [role="option"][aria-selected="true"]{background:#4f46e5;color:#fff}
+.shared-log{font-size:13px;color:#a1a1aa}

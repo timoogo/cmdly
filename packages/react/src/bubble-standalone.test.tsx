@@ -165,7 +165,8 @@ describe('CommandBubble (standalone mode)', () => {
     const user = userEvent.setup(), ref = createRef<CommandBubbleHandle>();
     function Owner() {
       const [open, setOpen] = useState(false);
-      return <><span data-testid="state">{String(open)}</span><Page ref={ref} open={open} onOpenChange={setOpen} /></>;
+      // `ref` goes to the bubble itself: function components only receive it as a prop from React 19.
+      return <><button>Before</button><span data-testid="state">{String(open)}</span><CommandBubble mode="standalone" commands={commands} ref={ref} open={open} onOpenChange={setOpen} /></>;
     }
     render(<Owner />);
     act(() => ref.current!.open());

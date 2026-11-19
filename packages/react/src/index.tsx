@@ -8,6 +8,6 @@ export type { CommandPaletteProps } from './palette.js';
 export { CommandBubble } from './bubble.js';
 export type { CommandBubbleProps, CommandBubbleHandle, CommandBubblePlacement, CommandBubbleTriggerProps } from './bubble.js';
 export { useCommandSession } from './session.js';
-export type { CommandSessionOptions } from './session.js';
+export type { CommandSessionOptions, CommandSessionEngine } from './session.js';
 export { useCommandCombobox } from './combobox.js';
 export type { CommandCombobox, CommandComboboxOptions } from './combobox.js';
