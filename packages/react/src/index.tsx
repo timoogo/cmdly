@@ -1,7 +1,7 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import type { KeyboardEvent, ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { ComponentType, KeyboardEvent, ReactNode } from 'react';
 import { createCommandEngine } from '@cmdly/core';
-import type { Command, CommandView, CommandEngine, RegistryCommandEngine, RegistryRuntime, EngineSnapshot, EngineOptions, FinalContext, WorkflowProgress, ResolvedTagDefinition, TagDefinition, CommandRegistry } from '@cmdly/core';
+import type { Command, CommandView, CommandEngine, RegistryCommandEngine, RegistryRuntime, EngineSnapshot, EngineOptions, FinalContext, WorkflowProgress, ResolvedTagDefinition, TagDefinition, CommandRegistry, Token, TokenFeedback, TokenOptions } from '@cmdly/core';
 export * from '@cmdly/core';
 
 /**
@@ -28,7 +28,30 @@ export function useCommandEngine(input: unknown): unknown {
   const engine = input as CommandEngine<CommandView>;
   return { state: useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot), actions: engine };
 }
+/** Props received by a custom token feedback component. */
+export type TokenFeedbackProps = { feedback: TokenFeedback; tokens: Token[] };
+/**
+ * Global token feedback mode of `CommandPalette`.
+ * - `'banner'` (default): lists invalid, failed and ambiguous tokens and the validation in progress.
+ * - `'loader'`: shows a global indicator while tokens are pending.
+ * - `'none'`: renders nothing; read `state.tokenFeedback` from `useCommandEngine` instead.
+ * - a component: receives `{ feedback, tokens }` and owns its accessibility.
+ */
+export type TokenFeedbackMode = 'banner' | 'loader' | 'none' | ComponentType<TokenFeedbackProps>;
+
+/** Default, unstyled description of a token issue. */
+export function describeTokenIssue(token: Token): string {
+  if (token.message) return token.message;
+  if (token.status === 'ambiguous') return `"${token.raw}" is ambiguous (${token.candidates.join(', ')})`;
+  if (token.status === 'error') return `"${token.raw}" could not be validated`;
+  return `"${token.raw}" is not valid`;
+}
+
 export type CommandPaletteProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & {
+  /** Global token types and collision resolver. Changes are applied to the open palette. */
+  tokens?: TokenOptions;
+  /** Global token feedback. Defaults to `'banner'`. */
+  tokenFeedback?: TokenFeedbackMode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   renderProgress?: (progress: WorkflowProgress) => ReactNode;
@@ -51,13 +74,15 @@ export type CommandPaletteProps = Pick<EngineOptions, 'commands' | 'defaults' | 
 export function CommandPalette(props: CommandPaletteProps) {
   return props.open ? <OpenPalette {...props} /> : null;
 }
-function OpenPalette({ commands, defaults, callbacks, strategies, plugins, onOpenChange, renderProgress, renderTag }: CommandPaletteProps) {
-  const engine = useMemo(() => createCommandEngine({ commands, defaults, callbacks, strategies }), []);
+function OpenPalette({ commands, defaults, callbacks, strategies, plugins, tokens, tokenFeedback = 'banner', onOpenChange, renderProgress, renderTag }: CommandPaletteProps) {
+  const engine = useMemo(() => createCommandEngine({ commands, defaults, callbacks, strategies, tokens }), []);
+  const appliedTokens = useRef(tokens);
+  useLayoutEffect(() => { if (appliedTokens.current !== tokens) { appliedTokens.current = tokens; engine.setOptions({ tokens: tokens ?? { types: [] } }); } }, [engine, tokens]);
   const { state, actions } = useCommandEngine(engine);
   const input = useRef<HTMLInputElement>(null), dialog = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const pointer = useRef<{ x: number; y: number } | null>(null), keyboardNavigation = useRef(false);
-  const listId = useId();
+  const listId = useId(), feedbackId = useId();
   const lifetimes = useRef(new Map<CommandEngine, number>());
   useLayoutEffect(() => { engine.setOptions({ commands, defaults, callbacks, strategies }); }, [engine, commands, defaults, callbacks, strategies]);
   useLayoutEffect(() => {
@@ -120,6 +145,21 @@ function OpenPalette({ commands, defaults, callbacks, strategies, plugins, onOpe
   const start = state.canBack ? Math.floor(state.active / state.maxVisibleItems) * state.maxVisibleItems : 0;
   const visibleItems = state.canBack ? state.items.slice(start, start + state.maxVisibleItems) : state.items;
   const message = state.error instanceof Error ? state.error.message : state.error ? (state.loadFailed ? 'Could not load options' : 'Command failed') : null;
+  const feedback = state.tokenFeedback, showFeedback = tokens !== undefined || feedback.status !== 'idle';
+  const builtIn = tokenFeedback === 'banner' || tokenFeedback === 'loader';
+  const announcement = useTokenAnnouncement(builtIn && showFeedback ? tokenFeedback : 'none', feedback);
+  const bannerVisible = tokenFeedback === 'banner' && (feedback.issues.length > 0 || feedback.pending.length > 0);
+  const busy = tokenFeedback === 'loader' && feedback.pending.length > 0;
+  const CustomFeedback = typeof tokenFeedback === 'function' ? tokenFeedback : undefined;
+  const tokenView = <>
+    {builtIn && showFeedback && <span data-cmdly-token-announcer role="status" aria-live="polite" style={visuallyHidden}>{announcement}</span>}
+    {bannerVisible && <div id={feedbackId} data-cmdly-token-feedback="banner" data-status={feedback.status}>
+      {feedback.issues.map(token => <p key={token.id} data-status={token.status}>{describeTokenIssue(token)}</p>)}
+      {feedback.pending.length > 0 && <p data-status="pending">Validating…</p>}
+    </div>}
+    {busy && <div data-cmdly-token-feedback="loader" data-status="pending">Validating…</div>}
+    {CustomFeedback && feedback.status !== 'idle' && <CustomFeedback feedback={feedback} tokens={state.tokens} />}
+  </>;
   const context: FinalContext = { answers: state.answers, summary: state.summary, status: state.status, error: state.error, result: state.result, execute: actions.execute, back, close: actions.close };
   return <div role="dialog" aria-modal="true" aria-label="Command palette" ref={dialog} onKeyDown={keyDown}>
     {state.phase === 'final' && state.finalStep ? <>
@@ -133,14 +173,33 @@ function OpenPalette({ commands, defaults, callbacks, strategies, plugins, onOpe
         <button type="button" onClick={actions.close}>Cancel</button>
       </>}
     </> : <>
-      <label>{state.step?.label ?? (state.canBack ? state.menuLabel : 'Search commands')}<input ref={input} value={state.query} onChange={event => actions.setQuery(event.target.value)} role="combobox" aria-expanded="true" aria-controls={!state.loading && !state.running ? listId : undefined} aria-activedescendant={state.items.length && !state.loading && !state.running ? `${listId}-${state.active}` : undefined} aria-autocomplete="list" disabled={state.running} /></label>
+      <label>{state.step?.label ?? (state.canBack ? state.menuLabel : 'Search commands')}<input ref={input} value={state.query} onChange={event => actions.setQuery(event.target.value)} role="combobox" aria-expanded="true" aria-controls={!state.loading && !state.running ? listId : undefined} aria-activedescendant={state.items.length && !state.loading && !state.running ? `${listId}-${state.active}` : undefined} aria-autocomplete="list" aria-describedby={bannerVisible ? feedbackId : undefined} disabled={state.running} /></label>
+      {tokenView}
       {state.canBack && <button type="button" onClick={back} disabled={state.running}>Back</button>}
       <button type="button" onClick={actions.close}>Cancel</button>
       {state.loading && <p role="status">Loading options…</p>}
       {state.running && <p role="status">Running command…</p>}
       {message && <div role="alert">{message}{(state.loadFailed || (state.phase === "final" && state.status === "error")) && <button type="button" onClick={actions.retry}>Retry</button>}</div>}
-      {!state.loading && !state.running && <ul role="listbox" id={listId} aria-label={state.step?.label ?? state.menuLabel}>{visibleItems.map((item, offset) => { const i = start + offset; return <li key={'id' in item ? item.id : item.value} id={`${listId}-${i}`} role="option" aria-selected={i === state.active} aria-posinset={i + 1} aria-setsize={state.items.length} onMouseMove={event => { const previous = pointer.current; const moved = previous ? previous.x !== event.clientX || previous.y !== event.clientY : (event.movementX || 0) !== 0 || (event.movementY || 0) !== 0; pointer.current = { x: event.clientX, y: event.clientY }; if (!keyboardNavigation.current || moved) { keyboardNavigation.current = false; actions.setActive(i); } }} onClick={() => actions.select(i)}>{item.label}{renderTag && 'id' in item && (item as CommandView).tags?.map(tag => { const def: ResolvedTagDefinition = { key: tag, ...((item as CommandView & { tagOverrides?: Record<string, Partial<TagDefinition>> }).tagOverrides?.[tag] ?? {}) }; return <span key={tag}>{renderTag(tag, def, item as CommandView)}</span>; })}</li>; })}</ul>}
+      {!state.loading && !state.running && <ul role="listbox" id={listId} aria-label={state.step?.label ?? state.menuLabel} aria-busy={busy || undefined}>{visibleItems.map((item, offset) => { const i = start + offset; return <li key={'id' in item ? item.id : item.value} id={`${listId}-${i}`} role="option" aria-selected={i === state.active} aria-posinset={i + 1} aria-setsize={state.items.length} onMouseMove={event => { const previous = pointer.current; const moved = previous ? previous.x !== event.clientX || previous.y !== event.clientY : (event.movementX || 0) !== 0 || (event.movementY || 0) !== 0; pointer.current = { x: event.clientX, y: event.clientY }; if (!keyboardNavigation.current || moved) { keyboardNavigation.current = false; actions.setActive(i); } }} onClick={() => actions.select(i)}>{item.label}{renderTag && 'id' in item && (item as CommandView).tags?.map(tag => { const def: ResolvedTagDefinition = { key: tag, ...((item as CommandView & { tagOverrides?: Record<string, Partial<TagDefinition>> }).tagOverrides?.[tag] ?? {}) }; return <span key={tag}>{renderTag(tag, def, item as CommandView)}</span>; })}</li>; })}</ul>}
     </>}
     {state.progress && renderProgress?.(state.progress)}
   </div>;
+}
+
+const visuallyHidden = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 } as const;
+
+/** Polite announcement text: each token is announced once per status; empty tokens are ignored by the core feedback. */
+function useTokenAnnouncement(mode: 'banner' | 'loader' | 'none', feedback: TokenFeedback): string {
+  const [message, setMessage] = useState('');
+  const announced = useRef(new Set<string>()), wasPending = useRef(false);
+  useEffect(() => {
+    if (mode === 'none') return;
+    const parts: string[] = [];
+    const pending = feedback.pending.length > 0;
+    if (mode === 'loader') { if (pending && !wasPending.current) parts.push('Validating…'); }
+    else for (const token of feedback.issues) { const key = `${token.id}:${token.status}`; if (!announced.current.has(key)) { announced.current.add(key); parts.push(describeTokenIssue(token)); } }
+    wasPending.current = pending;
+    if (parts.length) setMessage(parts.join('. '));
+  }, [mode, feedback]);
+  return message;
 }
