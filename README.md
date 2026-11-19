@@ -195,6 +195,17 @@ The previous `CommandPalette` API remains available from `@cmdly/react`; existin
 
 Pass `engine` instead of `commands` to display a session you own, for example a registry engine (`createCommandEngine({ registry, runtime })`) or one session shown successively by several interfaces. `engine` excludes `commands`, `defaults`, `callbacks`, `strategies`, `plugins` and `tokens`: configure the engine itself, and call `engine.refreshRegistry()` after registry changes. The palette never closes or destroys an external engine: Escape at the root, Cancel and the final step's `close` only call `onOpenChange(false)`, and the query, path, tokens and any running command are kept for the next interface. `engine.close()` is definitive: when the engine closes itself (after a successful run, or because you called it), `onOpenChange(false)` is called and a closed engine is not shown again; create a new one for the next session, and `destroy()` it when you no longer need it. `label` sets the dialog's accessible name (default `'Command palette'`).
 
+### Command Bubble (trigger mode)
+
+`CommandBubble` is a trigger button that opens and closes a `CommandPalette`; it takes the palette's props (`commands` or `engine`, `tokens`, `tokenFeedback`, …) and the same session rules apply.
+
+```tsx
+const bubble = useRef<CommandBubbleHandle>(null); // open(), close(), toggle()
+<CommandBubble ref={bubble} commands={commands} trigger={<span aria-hidden="true">⌘</span>} />
+```
+
+It is uncontrolled by default (`defaultOpen`) or controlled with `open` and `onOpenChange`, which reports every change: trigger, Escape, Cancel, completion and the ref's actions. `layout` is `'floating'` (default: `position: fixed` in a viewport corner, `placement` `'bottom-right'` by default, `offset` 16 px) or `'inline'` (left in the layout flow). `trigger` replaces the button's content; the button keeps `aria-haspopup="dialog"`, `aria-expanded`, `aria-controls` (while open) and `label` (default `'Command palette'`) as its accessible name and the palette's. The wrapper carries `data-cmdly-bubble`, `data-layout`, `data-placement` and `data-state` for styling, plus `className` and `style`; the palette is rendered next to it, not inside it. Focus returns to the element that opened the palette. Cmdly expects one `CommandBubble` per application and warns in development when several are mounted. No shortcut is registered: call `toggle()` from your own handler.
+
 
 ## Composable command registries
 

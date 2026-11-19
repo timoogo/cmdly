@@ -25,3 +25,4 @@
 .token-chips span { padding: 2px 8px; border-radius: 999px; background: #f2f0eb; }
 .token-chips span[data-status="valid"] { background: #e3f4e8; }
 .token-chips span[data-status="invalid"], .token-chips span[data-status="error"] { background: #fde8e6; }
+.bubble button{width:48px;height:48px;border-radius:50%;border:1px solid #3f3f46;background:#18181b;color:#fafafa;font-size:20px;box-shadow:0 8px 24px #0008}.bubble button:hover{background:#27272a}.bubble[data-state="open"] button{background:#fafafa;color:#18181b}

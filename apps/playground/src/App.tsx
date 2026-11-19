@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CommandPalette, type TokenFeedbackMode, type TokenFeedbackProps } from '@cmdly/react';
+import { CommandBubble, type TokenFeedbackMode, type TokenFeedbackProps } from '@cmdly/react';
 import type { EnginePlugin, EngineStrategies } from '@cmdly/core';
 import { createCommands, type Activity } from './commands';
 import { Progress } from './components/progress';
@@ -64,7 +64,8 @@ export default function App() {
           <label className="toggle">Token feedback <select value={feedbackMode} onChange={(event) => setFeedbackMode(event.target.value)}>{Object.keys(feedbackModes).map(mode => <option key={mode}>{mode}</option>)}</select></label></div>
         <div><h2>Activity</h2><div className="activity" aria-live="polite">{activity.length ? activity.map((entry, index) => <p key={index}><strong>{entry.title}</strong><br />{entry.detail}</p>) : <p>Run a command to see what happens here.</p>}</div></div>
       </section>
-      <CommandPalette commands={commands} tokens={tokenOptions} tokenFeedback={feedbackModes[feedbackMode]} strategies={strategies} plugins={plugins} open={open} onOpenChange={setOpen} renderProgress={progress => <div className="workflow-progress">
+      {/* Trigger mode: the bubble shares its open state with the launch button and the ⌘/Ctrl K shortcut. */}
+      <CommandBubble trigger={<span aria-hidden="true">⌘</span>} className="bubble" commands={commands} tokens={tokenOptions} tokenFeedback={feedbackModes[feedbackMode]} strategies={strategies} plugins={plugins} open={open} onOpenChange={setOpen} renderProgress={progress => <div className="workflow-progress">
         <div>{progress.indeterminate ? `${progress.current} completed · More steps ahead` : `${progress.current} of ${progress.total} completed · ${progress.percentage}%`}</div>
         <Progress value={progress.percentage} />
       </div>} />

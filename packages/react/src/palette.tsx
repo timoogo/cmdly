@@ -6,13 +6,15 @@ import { useCommandCombobox } from './combobox.js';
 import { CommandSessionView } from './session-view.js';
 import type { TokenFeedbackMode } from './token-feedback.js';
 
-type PaletteViewProps = {
+export type PaletteViewProps = {
   /** Global token feedback. Defaults to `'banner'`. */
   tokenFeedback?: TokenFeedbackMode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Accessible name of the dialog. Defaults to `'Command palette'`. */
   label?: string;
+  /** `id` of the dialog element, e.g. for a trigger's `aria-controls`. */
+  id?: string;
   renderProgress?: (progress: WorkflowProgress) => ReactNode;
   /**
    * Custom tag badge renderer. Called for each tag on each command item.
@@ -31,7 +33,7 @@ type PaletteViewProps = {
 };
 
 /** The palette creates one engine per opening from these options and destroys it when it closes. */
-type OwnedEngineProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & {
+export type OwnedEngineProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & {
   /** Global token types and collision resolver. Changes are applied to the open palette. */
   tokens?: TokenOptions;
   engine?: never;
@@ -44,7 +46,7 @@ type OwnedEngineProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks
  * callbacks, plugins; `refreshRegistry()` after registry changes). When the engine closes (`engine.close()`,
  * completion), `onOpenChange(false)` is called and the engine cannot be shown again: create a new one.
  */
-type ExternalEngineProps = {
+export type ExternalEngineProps = {
   /** A plain engine (`createCommandEngine({ commands })`) or a registry engine (`createCommandEngine({ registry })`). */
   engine: SessionEngine;
   commands?: never; defaults?: never; callbacks?: never; strategies?: never; plugins?: never; tokens?: never;
@@ -70,7 +72,7 @@ function ExternalPalette({ engine, onOpenChange, ...view }: PaletteViewProps & {
 }
 
 /** Modal container: initial focus, Tab containment and focus restoration around one session view. */
-function PaletteSurface({ engine, tokensConfigured, onDismiss, tokenFeedback = 'banner', onOpenChange, label = 'Command palette', renderProgress, renderTag }: PaletteViewProps & { engine: SessionEngine; tokensConfigured: boolean; onDismiss?: () => void }) {
+function PaletteSurface({ engine, tokensConfigured, onDismiss, tokenFeedback = 'banner', onOpenChange, label = 'Command palette', id, renderProgress, renderTag }: PaletteViewProps & { engine: SessionEngine; tokensConfigured: boolean; onDismiss?: () => void }) {
   const onClosed = useCallback(() => onOpenChange(false), [onOpenChange]);
   useClosedEngine(engine, onClosed);
   const dialog = useRef<HTMLDivElement>(null), previousFocus = useRef<HTMLElement | null>(null);
@@ -92,7 +94,7 @@ function PaletteSurface({ engine, tokensConfigured, onDismiss, tokenFeedback = '
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
-  return <div role="dialog" aria-modal="true" aria-label={label} ref={dialog} onKeyDown={keyDown}>
+  return <div role="dialog" aria-modal="true" aria-label={label} id={id} ref={dialog} onKeyDown={keyDown}>
     <CommandSessionView combobox={combobox} renderProgress={renderProgress} renderTag={renderTag} />
   </div>;
 }
