@@ -3,6 +3,7 @@
   "pages": [
     "installation",
     "integration",
+    "customization",
     "nextjs"
   ]
 }

@@ -26,8 +26,6 @@ export type ExternalEngineProps = {
 /** What a container needs to display a session, whoever owns it. */
 export type HostedSession = {
   engine: SessionEngine;
-  /** Token types are configured by the host; live regions are mounted from the start. */
-  tokensConfigured: boolean;
   /** UI-only dismissal for external engines; `undefined` lets the combobox close an owned engine. */
   onDismiss?: () => void;
 };
@@ -49,11 +47,11 @@ function OwnedHost({ commands, defaults, callbacks, strategies, plugins, tokens,
   const engine = useCommandSession({ commands, defaults, callbacks, strategies, plugins, tokens });
   const onClosed = useCallback(() => onOpenChange(false), [onOpenChange]);
   useClosedEngine(engine, onClosed);
-  return <>{children({ engine, tokensConfigured: tokens !== undefined })}</>;
+  return <>{children({ engine })}</>;
 }
 
 function ExternalHost({ engine, onOpenChange, children }: SessionHostProps & { engine: SessionEngine }) {
   const onClosed = useCallback(() => onOpenChange(false), [onOpenChange]);
   useClosedEngine(engine, onClosed);
-  return <>{children({ engine, tokensConfigured: false, onDismiss: onClosed })}</>;
+  return <>{children({ engine, onDismiss: onClosed })}</>;
 }

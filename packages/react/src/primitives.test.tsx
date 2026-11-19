@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Boundaries of the internal primitives extracted from the palette (not public API yet).
-import React, { StrictMode, useRef } from 'react';
+import React, { StrictMode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -52,11 +52,10 @@ describe('useCommandSession', () => {
 describe('useCommandCombobox', () => {
   // A custom view built only from the primitives, without the palette's markup or container.
   function Custom({ commands, onClosed }: { commands: Command[]; onClosed: () => void }) {
-    const root = useRef<HTMLDivElement>(null);
     const engine = useCommandSession({ commands });
     useClosedEngine(engine, onClosed);
-    const { inputProps, listboxProps, getOptionProps, visibleItems, onKeyDown, listVisible } = useCommandCombobox(engine, { root, tokensConfigured: false, tokenFeedback: 'banner' });
-    return <section ref={root} onKeyDown={onKeyDown}>
+    const { inputProps, listboxProps, getOptionProps, visibleItems, rootProps, listVisible } = useCommandCombobox(engine);
+    return <section {...rootProps}>
       <input aria-label="Commands" {...inputProps} />
       {listVisible && <ol {...listboxProps}>{visibleItems.map(({ item, index }) => <li key={index} {...getOptionProps(index)}>{item.label}</li>)}</ol>}
     </section>;

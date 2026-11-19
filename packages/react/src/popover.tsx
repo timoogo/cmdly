@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { CSSProperties, RefObject } from 'react';
 import { useCommandCombobox } from './combobox.js';
-import { CommandSessionView } from './session-view.js';
+import { SessionContent } from './session-view.js';
 import type { HostedSession } from './session-host.js';
 import type { PaletteViewProps } from './palette.js';
 
@@ -20,9 +20,8 @@ export type PopoverSurfaceProps = Omit<PaletteViewProps, 'open' | 'onOpenChange'
  * completion). Focus returns to the trigger only when it was inside the popover (Escape, Cancel, completion);
  * an outside press or Tab leaves focus where the user moved it. Tab is never contained.
  */
-export function PopoverSurface({ engine, tokensConfigured, onDismiss, tokenFeedback = 'banner', label = 'Command palette', id, renderProgress, renderTag, anchor, trigger, side, align }: PopoverSurfaceProps) {
-  const popover = useRef<HTMLDivElement>(null);
-  const combobox = useCommandCombobox(engine, { root: popover, tokensConfigured, tokenFeedback, onDismiss });
+export function PopoverSurface({ engine, onDismiss, tokenFeedback, label = 'Command palette', id, renderProgress, renderTag, children, anchor, trigger, side, align }: PopoverSurfaceProps) {
+  const combobox = useCommandCombobox(engine, { tokenFeedback, onDismiss });
   const restoreFocus = useRef(true);
   const dismiss = useRef(combobox.dismiss);
   dismiss.current = combobox.dismiss;
@@ -36,13 +35,13 @@ export function PopoverSurface({ engine, tokensConfigured, onDismiss, tokenFeedb
     document.addEventListener('focusin', onOutside, true);
     return () => { document.removeEventListener('pointerdown', onOutside, true); document.removeEventListener('focusin', onOutside, true); };
   }, [anchor, leave]);
-  // Runs before the popover leaves the DOM, while the focused element is still inside it.
+  // Runs before the popover leaves the DOM, while the focused element is still inside the bubble.
   useLayoutEffect(() => () => {
-    if (restoreFocus.current && popover.current?.contains(document.activeElement)) trigger.current?.focus();
-  }, [trigger]);
+    if (restoreFocus.current && anchor.current?.contains(document.activeElement)) trigger.current?.focus();
+  }, [anchor, trigger]);
 
   const position: CSSProperties = { position: 'absolute', [side === 'top' ? 'bottom' : 'top']: 'calc(100% + 8px)', [align]: 0 };
-  return <div role="dialog" aria-label={label} id={id} ref={popover} data-cmdly-bubble-popover="" data-side={side} data-align={align} style={position} onKeyDown={combobox.onKeyDown}>
-    <CommandSessionView combobox={combobox} renderProgress={renderProgress} renderTag={renderTag} />
+  return <div role="dialog" aria-label={label} id={id} data-cmdly-bubble-popover="" data-side={side} data-align={align} style={position} {...combobox.rootProps}>
+    <SessionContent combobox={combobox} renderProgress={renderProgress} renderTag={renderTag}>{children}</SessionContent>
   </div>;
 }

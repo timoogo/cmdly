@@ -1,15 +1,12 @@
 import { useId, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
-import type { KeyboardEvent, RefObject } from 'react';
-import type { CommandView, FinalContext, Option } from '@cmdly/core';
+import type { CSSProperties, KeyboardEvent } from 'react';
+import type { CommandView, EngineSnapshot, FinalContext, Option } from '@cmdly/core';
 import type { SessionEngine } from './session.js';
 import { useTokenAnnouncement, type TokenFeedbackMode } from './token-feedback.js';
 
 export type CommandComboboxOptions = {
-  /** Element containing the whole view; used to focus the final-step controls. */
-  root: RefObject<HTMLElement | null>;
-  /** Token types are configured by the host; live regions are mounted from the start. */
-  tokensConfigured: boolean;
-  tokenFeedback: TokenFeedbackMode;
+  /** Token feedback: `'banner'` (default) and `'loader'` also announce issues through `tokens.announcer`. */
+  tokenFeedback?: TokenFeedbackMode;
   /**
    * Leaves the interface (Escape at the root, Cancel, the final step's `close`). Defaults to `engine.close()`,
    * which ends the session for good; pass a UI-only dismissal to keep an externally owned session alive.
@@ -17,15 +14,24 @@ export type CommandComboboxOptions = {
   onDismiss?: () => void;
 };
 
+const visuallyHidden: CSSProperties = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 };
+
 const finalFocusable = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
 
 /**
- * Internal. Headless behaviour of a command session view: keyboard interaction, ARIA wiring,
- * pointer/keyboard active-item arbitration, step/final-phase focus and token feedback state.
- * Rendering and the surrounding container (modal, popover…) belong to the caller.
+ * Headless behaviour of a command session view: keyboard interaction (arrows, Enter, Escape back/dismiss),
+ * ARIA wiring, pointer/keyboard active-item arbitration, input and final-step focus, and token feedback.
+ * Spread `rootProps` on the element containing the view, `inputProps` on the input, `listboxProps` and
+ * `getOptionProps(index)` on the list, and render `tokens.announcer` when it is set. Rendering, styling and
+ * the surrounding container (dialog, popover, page section) are yours; Tab is never handled.
+ *
+ * The engine is a session from `useCommandSession` (closed by `dismiss`) or one you created and keep
+ * (pass `onDismiss` to hide your interface without closing it).
  */
-export function useCommandCombobox(engine: SessionEngine, { root, tokensConfigured, tokenFeedback, onDismiss }: CommandComboboxOptions) {
-  const state = useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot), actions = engine;
+export function useCommandCombobox(engine: SessionEngine, { tokenFeedback = 'banner', onDismiss }: CommandComboboxOptions = {}) {
+  const state: EngineSnapshot<CommandView> = useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot), actions = engine;
+  const root = useRef<HTMLElement | null>(null);
+  const setRoot = useRef((node: HTMLElement | null) => { root.current = node; }).current;
   const dismiss = onDismiss ?? actions.close;
   const input = useRef<HTMLInputElement>(null);
   const pointer = useRef<{ x: number; y: number } | null>(null), keyboardNavigation = useRef(false);
@@ -56,7 +62,7 @@ export function useCommandCombobox(engine: SessionEngine, { root, tokensConfigur
 
   // Regions are mounted as soon as tokens are possible (and stay mounted) so that live regions exist before their first message.
   const tokensSeen = useRef(false);
-  if (tokensConfigured || state.tokensEnabled) tokensSeen.current = true;
+  if (state.tokensEnabled) tokensSeen.current = true;
   const feedback = state.tokenFeedback, showFeedback = tokensSeen.current;
   const builtIn = tokenFeedback === 'banner' || tokenFeedback === 'loader';
   const announcement = useTokenAnnouncement(builtIn && showFeedback ? tokenFeedback : 'none', feedback);
@@ -83,11 +89,43 @@ export function useCommandCombobox(engine: SessionEngine, { root, tokensConfigur
     onClick: () => actions.select(index),
   });
 
+  const announcer = builtIn && showFeedback ? { role: 'status', 'aria-live': 'polite' as const, 'data-cmdly-token-announcer': '', style: visuallyHidden, children: announcement } : null;
+
   return {
-    state, actions, back, dismiss, onKeyDown, inputProps, listboxProps, getOptionProps, listVisible,
-    visibleItems: visibleItems as { item: CommandView | Option; index: number }[], message, finalContext,
-    tokens: { feedback, showFeedback, builtIn, announcement, bannerVisible, busy, feedbackId, mode: tokenFeedback },
+    /** Engine snapshot: phase, query, items, active index, step, loading/running, error, progress… */
+    state,
+    /** The engine's actions (`select`, `setQuery`, `setActive`, `execute`, `retry`, `forward`…). */
+    actions,
+    /** Previous step, keeping focus in the input. */
+    back,
+    /** Leaves the interface: `onDismiss` when given, otherwise `engine.close()`. */
+    dismiss,
+    /** For the element containing the view: keyboard handling and final-step focus. */
+    rootProps: { ref: setRoot, onKeyDown },
+    inputProps, listboxProps, getOptionProps,
+    /** `false` while loading or running: render the listbox only when `true`. */
+    listVisible,
+    /** Items to render with their index in `state.items` (paged in steps by `maxVisibleItems`). */
+    visibleItems: visibleItems as { item: CommandView | Option; index: number }[],
+    /** Readable error message, or `null`. */
+    message,
+    /** Context for the final phase (summary, status, execute, back, close). */
+    finalContext,
+    tokens: {
+      /** Live token feedback (`issues`, `pending`, `status`). */
+      feedback,
+      /** Token parsing is possible in this session: render token feedback regions from now on. */
+      showFeedback,
+      /** Props for a visually hidden polite live region announcing token issues; `null` when none should be mounted. */
+      announcer,
+      /** `true` when the built-in banner has content; its element must have `id={feedbackId}` (referenced by the input). */
+      bannerVisible, feedbackId,
+      /** Validation pending in `'loader'` mode. */
+      busy,
+      mode: tokenFeedback,
+    },
   };
 }
 
+/** Everything a custom session view needs; see `useCommandCombobox`. */
 export type CommandCombobox = ReturnType<typeof useCommandCombobox>;

@@ -3,6 +3,7 @@ import { CommandBubble, type TokenFeedbackMode, type TokenFeedbackProps } from '
 import type { EnginePlugin, EngineStrategies } from '@cmdly/core';
 import { createCommands, type Activity } from './commands';
 import { Progress } from './components/progress';
+import { CompactContent, PillTrigger } from './components/custom-bubble';
 import { createTokenCommands, tokenOptions } from './tokens';
 import './style.css';
 
@@ -27,7 +28,7 @@ export default function App() {
   const [failLoading, setFailLoading] = useState(false);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [feedbackMode, setFeedbackMode] = useState('banner');
-  const [bubbleMode, setBubbleMode] = useState<'trigger' | 'standalone'>('trigger');
+  const [bubbleMode, setBubbleMode] = useState<'trigger' | 'standalone' | 'custom'>('trigger');
   const commands = useMemo(() => {
     const record = (entry: Activity) => setActivity((items) => [entry, ...items]);
     return [...createTokenCommands(record), ...createCommands(record, failLoading)];
@@ -63,15 +64,17 @@ export default function App() {
         <div><h2>Try an error</h2><p>Make the project choices fail to load, then turn this off and try again.</p><label className="toggle"><input type="checkbox" checked={failLoading} onChange={(event) => setFailLoading(event.target.checked)} /> Simulate loading failure</label>
           <h2>Tokens</h2><p>Type <code>@alice</code>, <code>@nobody</code>, <code>#42</code>, <code>#bug</code> or <code>bob@example.com</code>. Tokens never filter commands: the remaining text does.</p>
           <label className="toggle">Token feedback <select value={feedbackMode} onChange={(event) => setFeedbackMode(event.target.value)}>{Object.keys(feedbackModes).map(mode => <option key={mode}>{mode}</option>)}</select></label>
-          <h2>Command Bubble</h2><p>The ⌘ bubble in the corner opens the palette (trigger) or its own compact popover (standalone).</p>
-          <label className="toggle">Bubble mode <select value={bubbleMode} onChange={(event) => { setOpen(false); setBubbleMode(event.target.value as 'trigger' | 'standalone'); }}><option>trigger</option><option>standalone</option></select></label></div>
+          <h2>Command Bubble</h2><p>The ⌘ bubble in the corner opens the palette (trigger) or its own compact popover (standalone); custom replaces its trigger and content with the headless API.</p>
+          <label className="toggle">Bubble mode <select value={bubbleMode} onChange={(event) => { setOpen(false); setBubbleMode(event.target.value as 'trigger' | 'standalone' | 'custom'); }}><option>trigger</option><option>standalone</option><option>custom</option></select></label></div>
         <div><h2>Activity</h2><div className="activity" aria-live="polite">{activity.length ? activity.map((entry, index) => <p key={index}><strong>{entry.title}</strong><br />{entry.detail}</p>) : <p>Run a command to see what happens here.</p>}</div></div>
       </section>
       {/* The bubble shares its open state with the launch button and the ⌘/Ctrl K shortcut. */}
-      <CommandBubble mode={bubbleMode} trigger={<span aria-hidden="true">⌘</span>} className="bubble" commands={commands} tokens={tokenOptions} tokenFeedback={feedbackModes[feedbackMode]} strategies={strategies} plugins={plugins} open={open} onOpenChange={setOpen} renderProgress={progress => <div className="workflow-progress">
+      {bubbleMode === 'custom' ? <CommandBubble mode="standalone" trigger={PillTrigger} className="custom-bubble" commands={commands} tokens={tokenOptions} strategies={strategies} plugins={plugins} open={open} onOpenChange={setOpen}>
+        {command => <CompactContent command={command} />}
+      </CommandBubble> : <CommandBubble mode={bubbleMode} trigger={<span aria-hidden="true">⌘</span>} className="bubble" commands={commands} tokens={tokenOptions} tokenFeedback={feedbackModes[feedbackMode]} strategies={strategies} plugins={plugins} open={open} onOpenChange={setOpen} renderProgress={progress => <div className="workflow-progress">
         <div>{progress.indeterminate ? `${progress.current} completed · More steps ahead` : `${progress.current} of ${progress.total} completed · ${progress.percentage}%`}</div>
         <Progress value={progress.percentage} />
-      </div>} />
+      </div>} />}
     </main>
   );
 }

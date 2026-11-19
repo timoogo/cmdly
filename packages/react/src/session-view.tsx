@@ -9,14 +9,20 @@ export type CommandSessionViewProps = {
   renderTag?: (tag: string, definition: ResolvedTagDefinition, command: CommandView) => ReactNode;
 };
 
-const visuallyHidden = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 } as const;
+/** Internal. What a container renders inside its root: the token announcer, then a custom view or the default one. */
+export function SessionContent({ combobox, children, ...view }: CommandSessionViewProps & { children?: (combobox: CommandCombobox) => ReactNode }) {
+  const announcer = combobox.tokens.announcer;
+  return <>
+    {announcer && <span {...announcer} />}
+    {children ? children(combobox) : <CommandSessionView combobox={combobox} {...view} />}
+  </>;
+}
 
 /** Internal. Default, unstyled rendering of a session: search/step combobox, final phase, token feedback and progress. */
 export function CommandSessionView({ combobox, renderProgress, renderTag }: CommandSessionViewProps) {
   const { state, actions, back, dismiss, inputProps, listboxProps, getOptionProps, listVisible, visibleItems, message, finalContext, tokens } = combobox;
   const CustomFeedback = typeof tokens.mode === 'function' ? tokens.mode : undefined;
   const tokenView = <>
-    {tokens.builtIn && tokens.showFeedback && <span data-cmdly-token-announcer role="status" aria-live="polite" style={visuallyHidden}>{tokens.announcement}</span>}
     {tokens.bannerVisible && <div id={tokens.feedbackId} data-cmdly-token-feedback="banner" data-status={tokens.feedback.status}>
       {tokens.feedback.issues.map(token => <p key={token.id} data-status={token.status}>{describeTokenIssue(token)}</p>)}
       {tokens.feedback.pending.length > 0 && <p data-status="pending">Validating…</p>}

@@ -3,7 +3,8 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import type { CommandView, ResolvedTagDefinition, WorkflowProgress } from '@cmdly/core';
 import { SessionHost, type ExternalEngineProps, type HostedSession, type OwnedEngineProps } from './session-host.js';
 import { useCommandCombobox } from './combobox.js';
-import { CommandSessionView } from './session-view.js';
+import { SessionContent } from './session-view.js';
+import type { CommandCombobox } from './combobox.js';
 import type { TokenFeedbackMode } from './token-feedback.js';
 
 export type PaletteViewProps = {
@@ -30,6 +31,12 @@ export type PaletteViewProps = {
    * )}
    */
   renderTag?: (tag: string, definition: ResolvedTagDefinition, command: CommandView) => ReactNode;
+  /**
+   * Custom content replacing the default view. It receives the session's headless state, props and actions
+   * (`useCommandCombobox`); keyboard handling, focus, token announcements and closing stay with the container.
+   * `renderProgress` and `renderTag` only apply to the default view.
+   */
+  children?: (command: CommandCombobox) => ReactNode;
 };
 
 export type CommandPaletteProps = PaletteViewProps & (OwnedEngineProps | ExternalEngineProps);
@@ -40,34 +47,33 @@ const tabbable = 'input:not([disabled]), button:not([disabled]), select:not([dis
 
 export function CommandPalette(props: CommandPaletteProps) {
   if (!props.open) return null;
-  const { tokenFeedback, open: _open, onOpenChange, label, id, renderProgress, renderTag, ...engine } = props;
+  const { tokenFeedback, open: _open, onOpenChange, label, id, renderProgress, renderTag, children, ...engine } = props;
   return <SessionHost {...engine as OwnedEngineProps | ExternalEngineProps} onOpenChange={onOpenChange}>
-    {session => <PaletteSurface {...session} tokenFeedback={tokenFeedback} label={label} id={id} renderProgress={renderProgress} renderTag={renderTag} />}
+    {session => <PaletteSurface {...session} tokenFeedback={tokenFeedback} label={label} id={id} renderProgress={renderProgress} renderTag={renderTag}>{children}</PaletteSurface>}
   </SessionHost>;
 }
 
 /** Modal container: initial focus, Tab containment and focus restoration around one session view. */
-function PaletteSurface({ engine, tokensConfigured, onDismiss, tokenFeedback = 'banner', label = 'Command palette', id, renderProgress, renderTag }: Omit<PaletteViewProps, 'open' | 'onOpenChange'> & HostedSession) {
-  const dialog = useRef<HTMLDivElement>(null), previousFocus = useRef<HTMLElement | null>(null);
+function PaletteSurface({ engine, onDismiss, tokenFeedback, label = 'Command palette', id, renderProgress, renderTag, children }: Omit<PaletteViewProps, 'open' | 'onOpenChange'> & HostedSession) {
+  const previousFocus = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   }, [engine]);
-  const combobox = useCommandCombobox(engine, { root: dialog, tokensConfigured, tokenFeedback, onDismiss });
+  const combobox = useCommandCombobox(engine, { tokenFeedback, onDismiss });
   const input = combobox.inputProps.ref;
   useEffect(() => {
     input.current?.focus();
     return () => { previousFocus.current?.focus(); };
   }, [engine]);
   function keyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== 'Tab') { combobox.onKeyDown(event); return; }
-    if (!dialog.current) return;
-    const focusable = Array.from(dialog.current.querySelectorAll<HTMLElement>(tabbable));
+    if (event.key !== 'Tab') { combobox.rootProps.onKeyDown(event); return; }
+    const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(tabbable));
     if (!focusable.length) return;
     const first = focusable[0], last = focusable[focusable.length - 1];
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
-  return <div role="dialog" aria-modal="true" aria-label={label} id={id} ref={dialog} onKeyDown={keyDown}>
-    <CommandSessionView combobox={combobox} renderProgress={renderProgress} renderTag={renderTag} />
+  return <div role="dialog" aria-modal="true" aria-label={label} id={id} ref={combobox.rootProps.ref} onKeyDown={keyDown}>
+    <SessionContent combobox={combobox} renderProgress={renderProgress} renderTag={renderTag}>{children}</SessionContent>
   </div>;
 }

@@ -7,6 +7,7 @@ const checks = [
   ['runtime.ts', 'registries/context-sessions.mdx'],
   ['react.tsx', 'react/integration.mdx'],
   ['next.tsx', 'react/nextjs.mdx'],
+  ['bubble.tsx', 'react/customization.mdx'],
   ['tokens.ts', 'core/tokens.mdx'],
 ];
 for (const [example, page] of checks) {

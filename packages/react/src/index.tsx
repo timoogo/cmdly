@@ -6,4 +6,8 @@ export type { TokenFeedbackProps, TokenFeedbackMode } from './token-feedback.js'
 export { CommandPalette } from './palette.js';
 export type { CommandPaletteProps } from './palette.js';
 export { CommandBubble } from './bubble.js';
-export type { CommandBubbleProps, CommandBubbleHandle, CommandBubblePlacement } from './bubble.js';
+export type { CommandBubbleProps, CommandBubbleHandle, CommandBubblePlacement, CommandBubbleTriggerProps } from './bubble.js';
+export { useCommandSession } from './session.js';
+export type { CommandSessionOptions } from './session.js';
+export { useCommandCombobox } from './combobox.js';
+export type { CommandCombobox, CommandComboboxOptions } from './combobox.js';

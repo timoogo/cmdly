@@ -208,6 +208,32 @@ It is uncontrolled by default (`defaultOpen`) or controlled with `open` and `onO
 
 With `mode="standalone"`, the bubble opens its own non-modal popover (`role="dialog"`, named by `label`, `data-cmdly-bubble-popover`) instead of the palette, with the same search, steps, tokens and final step. The popover is inside the bubble's wrapper, positioned against it: a floating bubble opens towards the viewport (`data-side`, `data-align`), an inline one opens below, left-aligned, and its wrapper becomes `position: relative; display: inline-block`. It closes on an outside press, when focus moves outside the bubble (Tab is not contained; Shift+Tab to the trigger keeps it open), on Escape at the root or on the focused trigger, and after a successful run unless the command keeps its final step open (`closeOnComplete: false`). Focus returns to the trigger after Escape, Cancel or completion, not after an outside press or Tab. An owned session is closed (and a running command aborted) when the popover closes; an external engine is only hidden and its run continues. Style the trigger with a child selector (`.my-bubble > button`): the popover's buttons are also inside the wrapper.
 
+### Customization
+
+Three levels share the same engine and behaviour:
+
+```tsx
+// 1. Ready to use
+<CommandBubble mode="standalone" commands={commands} />
+
+// 2. Custom trigger element and content; the bubble keeps keyboard, focus, ARIA and announcements
+<CommandBubble mode="standalone" commands={commands} trigger={props => <button {...props} className="pill">Actions</button>}>
+  {command => <MyList command={command} />}
+</CommandBubble>
+
+// 3. Fully headless, in your own container
+function Panel({ onClose }: { onClose: () => void }) {
+  const engine = useCommandSession({ commands, callbacks: { onClose } }); // one session per mount
+  const command = useCommandCombobox(engine); // or useCommandCombobox(myEngine, { onDismiss })
+  return <section {...command.rootProps}>
+    {command.tokens.announcer && <span {...command.tokens.announcer} />}
+    <MyList command={command} />
+  </section>;
+}
+```
+
+`trigger` as a function receives `CommandBubbleTriggerProps` (`ref`, `type`, ARIA, `data-state`, `onClick`, `onKeyDown`) to spread on a focusable element. `children` (also on `CommandPalette`) receives a `CommandCombobox`: `state`, `actions`, `back`, `dismiss`, `rootProps`, `inputProps`, `listboxProps`, `getOptionProps(index)`, `listVisible`, `visibleItems`, `message`, `finalContext` and `tokens`; it replaces the default view (and `renderProgress`/`renderTag`, which only apply to it). In the final phase, render `state.finalStep.render(finalContext)` or your own summary. `useCommandSession` destroys its session on unmount; keep `commands`, `defaults`, `strategies` and `tokens` stable in the component that calls it (`callbacks` may be inline). The hooks never handle Tab: containment is the container's choice.
+
 
 ## Composable command registries
 
