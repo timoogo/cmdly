@@ -109,7 +109,10 @@ export type TokenType<TData = unknown> = TokenTypeBase & TokenValidation<TData> 
 
 /** A token recognized in the input. Immutable: a new object is published on every change. */
 export type Token<TData = unknown> = {
-  /** Stable identifier for the token's lifetime (usable as a React key). */
+  /**
+   * Identifier stable for the token's lifetime (usable as a React key). Identical tokens are tracked
+   * per occurrence: deleting the first of two identical tokens keeps the first id for the remaining one.
+   */
   id: string;
   /** Id of the selected type; absent when `status` is `'ambiguous'`. */
   type?: string;
@@ -152,8 +155,13 @@ export type TokenFeedback = {
 export type TokenRunContext = {
   /** Tokens captured along the workflow path, in order. */
   tokens: Token[];
-  /** Resolves once no captured token is `'pending'`. */
+  /** Resolves once no captured token is `'pending'`; rejects with an `AbortError` once the session is closed or destroyed. */
   settleTokens: () => Promise<Token[]>;
+  /**
+   * Aborted when the palette session is closed or destroyed (never by navigation).
+   * Use it to stop your own async work; side effects remain your responsibility.
+   */
+  signal: AbortSignal;
 };
 
 /** Dynamic registry of global token types. */
@@ -239,6 +247,8 @@ export type EngineSnapshot<TCommand extends CommandView = Command, TRuntime = un
   tokens: Token[];
   /** Aggregated feedback over the current and captured tokens. */
   tokenFeedback: TokenFeedback;
+  /** True when token types are configured or active here, or tokens were captured. Lets renderers mount live regions early. */
+  tokensEnabled: boolean;
   active: number;
   loading: boolean;
   running: boolean;

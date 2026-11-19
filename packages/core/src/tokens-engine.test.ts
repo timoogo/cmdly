@@ -228,7 +228,8 @@ describe('token recognition in the engine', () => {
     ], run } as Command];
 
     it('captures menu and step tokens along the path and hands them to run', async () => {
-      const run = vi.fn();
+      let settled: Token[] = [];
+      const run = vi.fn(async (_answers: unknown, context?: { settleTokens?: () => Promise<Token[]> }) => { settled = await context!.settleTokens!(); });
       const engine = createCommandEngine({ commands: steps(run), tokens: { types: [user] } });
       engine.setQuery('@menu');
       engine.select(0);
@@ -239,9 +240,9 @@ describe('token recognition in the engine', () => {
       engine.setQuery('@second');
       engine.select(0);
       await flush();
-      const context = run.mock.calls[0][1];
+      const context = run.mock.calls[0][1] as unknown as { tokens: Token[] };
       expect(context.tokens.map((token: Token) => [token.value, token.step])).toEqual([['menu', undefined], ['first', 'first'], ['second', 'second']]);
-      expect(await context.settleTokens()).toEqual(context.tokens);
+      expect(settled).toEqual(context.tokens);
     });
 
     it('drops tokens captured in a step when going back, and keeps earlier ones', async () => {
@@ -336,6 +337,161 @@ describe('token recognition in the engine', () => {
       expect(context.shared).toEqual({ name: 'app' });
       expect(context.tokens.map((token: Token) => token.value)).toEqual(['alice']);
       expect(typeof context.settleTokens).toBe('function');
+    });
+  });
+
+  describe('audit fixes', () => {
+    const values = (tokens: Token[]) => tokens.map(token => token.value);
+    const threeSteps = (run: Command['run']): Command[] => [{ id: 'c', label: 'C', steps: ['s1', 's2', 's3'].map(id => ({ id, label: id, options: [{ value: id, label: id }] })), run } as Command];
+
+    it('restores captured tokens when navigating forward across several steps and round trips', async () => {
+      const run = vi.fn();
+      const engine = createCommandEngine({ commands: threeSteps(run), tokens: { types: [user] } });
+      engine.setQuery('@menu'); engine.select(0);
+      engine.setQuery('@one'); engine.select(0);
+      engine.setQuery('@two'); engine.select(0);
+      for (let round = 0; round < 3; round++) {
+        engine.back(); engine.back();
+        expect(engine.getSnapshot().step?.id).toBe('s1');
+        expect(values(engine.getSnapshot().tokenFeedback.pending.concat())).toEqual([]);
+        engine.forward();
+        expect(engine.getSnapshot().step?.id).toBe('s2');
+        engine.forward();
+        expect(engine.getSnapshot().step?.id).toBe('s3');
+      }
+      engine.back(); engine.back(); engine.back();
+      expect(engine.getSnapshot().phase).toBe('menu');
+      engine.forward(); engine.forward(); engine.forward();
+      expect(engine.getSnapshot().step?.id).toBe('s3');
+      engine.select(0);
+      await flush();
+      expect(values(run.mock.calls[0][1].tokens)).toEqual(['menu', 'one', 'two']);
+    });
+
+    it('restores captured tokens when navigating forward into submenus', async () => {
+      const run = vi.fn();
+      const engine = createCommandEngine({ commands: [{ id: 'g', label: 'G', steps: [{ id: 'mode', label: 'Mode', options: [{ value: 'm', label: 'M' }] }], commands: [{ id: 'leaf', label: 'Leaf', steps: [{ id: 'x', label: 'X', options: [{ value: 'x', label: 'X' }] }], run }] }], tokens: { types: [user] } });
+      engine.setQuery('@root'); engine.select(0);   // group step "mode"
+      engine.setQuery('@mode'); engine.select(0);   // submenu
+      engine.setQuery('@leaf'); engine.select(0);   // leaf step "x"
+      engine.back(); engine.back(); engine.back();
+      expect(engine.getSnapshot().phase).toBe('menu');
+      expect(engine.getSnapshot().canBack).toBe(false);
+      engine.forward(); engine.forward(); engine.forward();
+      expect(engine.getSnapshot().step?.id).toBe('x');
+      engine.back(); engine.forward();
+      engine.select(0);
+      await flush();
+      expect(values(run.mock.calls[0][1].tokens)).toEqual(['root', 'mode', 'leaf']);
+    });
+
+    it('rejects settleTokens with an AbortError and aborts the signal when the palette closes mid-run', async () => {
+      const after = vi.fn();
+      let signal: AbortSignal | undefined, rejection: unknown;
+      const engine = createCommandEngine({ commands: [{ id: 'c', label: 'C', run: async (_answers, context) => { signal = context!.signal; try { await context!.settleTokens!(); after(); } catch (error) { rejection = error; } } }], tokens: { types: [{ id: 'user', prefix: '@', match: () => new Promise<boolean>(() => {}) }] } });
+      engine.setQuery('@slow'); engine.select(0);
+      await flush();
+      expect(signal?.aborted).toBe(false);
+      engine.close();
+      await flush();
+      expect(signal?.aborted).toBe(true);
+      expect(rejection).toMatchObject({ name: 'AbortError' });
+      expect(after).not.toHaveBeenCalled();
+    });
+
+    it('rejects settleTokens and aborts the signal on destroy, even when tokens are already settled', async () => {
+      let context: { settleTokens?: () => Promise<Token[]>; signal?: AbortSignal } | undefined;
+      const engine = createCommandEngine({ commands: [{ id: 'c', label: 'C', finalStep: { timing: 'before' }, run: () => {} }], tokens: { types: [user] }, callbacks: {} });
+      engine.setQuery('@a'); engine.select(0);
+      const engine2 = createCommandEngine({ commands: [{ id: 'c', label: 'C', run: async (_answers, ctx) => { context = ctx; await new Promise(() => {}); } }], tokens: { types: [user] } });
+      engine2.setQuery('@a'); engine2.select(0);
+      await flush();
+      await expect(context!.settleTokens!()).resolves.toHaveLength(1);
+      engine2.destroy();
+      expect(context!.signal!.aborted).toBe(true);
+      await expect(context!.settleTokens!()).rejects.toMatchObject({ name: 'AbortError' });
+      engine.destroy();
+    });
+
+    it('does not abort the signal or captured validations when navigating between steps', async () => {
+      const signals: AbortSignal[] = [];
+      let seen: boolean[] = [];
+      const engine = createCommandEngine({ commands: threeSteps((_answers, context) => { seen = [signals[0].aborted, context!.signal!.aborted]; }), tokens: { types: [{ id: 'user', prefix: '@', match: (_, { signal }) => { signals.push(signal); return new Promise<boolean>(() => {}); } }] } });
+      engine.setQuery('@a'); engine.select(0);
+      engine.select(0); engine.back(); engine.back(); engine.forward(); engine.select(0); engine.select(0); engine.select(0);
+      await flush();
+      expect(seen).toEqual([false, false]);
+      expect(signals).toHaveLength(1);
+      expect(signals[0].aborted).toBe(true); // the palette closed after completion
+    });
+
+    it('aborts a live validation when its type is replaced mid-flight and ignores the late result', async () => {
+      const first = deferred<boolean>(), signals: AbortSignal[] = [];
+      const engine = createCommandEngine({ commands: commands(), tokens: { types: [{ id: 'user', prefix: '@', match: (_, { signal }) => { signals.push(signal); return first.promise; } }] } });
+      engine.setQuery('@a');
+      engine.tokens.register({ id: 'user', prefix: '@', match: async () => ({ valid: false, message: 'v2' }) });
+      expect(signals[0].aborted).toBe(true);
+      first.resolve(true);
+      await flush();
+      expect(engine.getSnapshot().tokens[0]).toMatchObject({ status: 'invalid', message: 'v2' });
+    });
+
+    it('keeps validating a captured token with the type it was captured with', async () => {
+      const gate = deferred<boolean>(), signals: AbortSignal[] = [];
+      let settled: Token[] = [];
+      const engine = createCommandEngine({ commands: threeSteps(async (_answers, context) => { settled = await context!.settleTokens!(); }), tokens: { types: [{ id: 'user', prefix: '@', match: (_, { signal }) => { signals.push(signal); return gate.promise; } }] } });
+      engine.setQuery('@a'); engine.select(0);
+      engine.tokens.register({ id: 'user', prefix: '@', match: () => false });
+      engine.tokens.unregister('user');
+      expect(signals[0].aborted).toBe(false);
+      expect(engine.getSnapshot().tokenFeedback.status).toBe('pending');
+      engine.select(0); engine.select(0); engine.select(0);
+      gate.resolve(true);
+      await vi.waitFor(() => expect(settled.map(token => token.status)).toEqual(['valid']));
+    });
+
+    it('does not revalidate or republish when equivalent definitions are re-applied', () => {
+      const match = vi.fn(() => new Promise<boolean>(() => {}));
+      const definitions = () => ({ types: [{ id: 'user', prefix: '@', match }, { id: 'env', prefix: ':', values: [{ value: 'prod', data: { region: 'eu' } }] }, { id: 'mail', prefixMode: 'none' as const, detect: /^\S+@\S+$/ }] });
+      const engine = createCommandEngine({ commands: commands(), tokens: definitions() });
+      engine.setQuery('@a :prod b@c.io');
+      const ids = engine.getSnapshot().tokens.map(token => token.id);
+      const listener = vi.fn(); engine.subscribe(listener);
+      engine.setOptions({ tokens: definitions() });
+      engine.setOptions({ tokens: definitions() });
+      expect(match).toHaveBeenCalledTimes(1);
+      expect(listener).not.toHaveBeenCalled();
+      expect(engine.getSnapshot().tokens.map(token => token.id)).toEqual(ids);
+      engine.setOptions({ tokens: { ...definitions(), types: [{ id: 'user', prefix: '@', match }, { id: 'env', prefix: ':', values: [{ value: 'prod', data: { region: 'us' } }] }] } });
+      expect(statuses(engine.getSnapshot().tokens)).toEqual(['user:a:pending', 'env:prod:valid']);
+      expect(engine.getSnapshot().tokens[0].id).toBe(ids[0]);
+      expect(engine.getSnapshot().tokens[1].id).not.toBe(ids[1]);
+    });
+
+    it('re-resolves live tokens when only the resolver changes', () => {
+      const types: TokenType[] = [{ id: 'issue', prefix: '#' }, { id: 'label', prefix: '#' }];
+      const engine = createCommandEngine({ commands: commands(), tokens: { types, resolve: () => 'issue' } });
+      engine.setQuery('#1');
+      engine.setOptions({ tokens: { types, resolve: () => 'label' } });
+      expect(statuses(engine.getSnapshot().tokens)).toEqual(['label:1:valid']);
+    });
+
+    it('tracks identical tokens per occurrence', () => {
+      const engine = createCommandEngine({ commands: commands(), tokens: { types: [user] } });
+      engine.setQuery('@a @a');
+      const [first] = engine.getSnapshot().tokens.map(token => token.id);
+      engine.setQuery('@a');
+      expect(engine.getSnapshot().tokens[0].id).toBe(first);
+    });
+
+    it('exposes tokensEnabled where tokens can be recognized or were captured', () => {
+      const plain = createCommandEngine({ commands: commands() });
+      expect(plain.getSnapshot().tokensEnabled).toBe(false);
+      const local = createCommandEngine({ commands: [{ id: 'c', label: 'C', steps: [{ id: 's', label: 'S', tokens: [user], options: [{ value: 'x', label: 'X' }] }], run: () => {} }] });
+      expect(local.getSnapshot().tokensEnabled).toBe(false);
+      local.select(0);
+      expect(local.getSnapshot().tokensEnabled).toBe(true);
+      expect(createCommandEngine({ commands: [], tokens: {} }).getSnapshot().tokensEnabled).toBe(true);
     });
   });
 });

@@ -80,10 +80,10 @@ const email = defineTokenType({ id: 'email', prefixMode: 'none', detect: /^[^\s@
 
 <CommandPalette commands={commands} tokens={{ types: [user, email] }} tokenFeedback="banner" open={open} onOpenChange={setOpen} />
 
-// In a command: run(answers, context) → context.tokens, await context.settleTokens()
+// In a command: run(answers, context) → context.tokens, await context.settleTokens(), context.signal
 ```
 
-Resolution is deterministic: longest prefix first, prefix-less types only when no prefix matches, local (step, then command) types over global ones, and same-scope collisions resolved by `tokens.resolve` or reported as `ambiguous`. Statuses are `pending`, `valid`, `invalid`, `error` and `ambiguous`; `snapshot.tokenFeedback` aggregates them independently of rendering, and `CommandPalette` shows it as `banner`, `loader`, `none` or your own component. Global types can be registered at runtime with `engine.tokens.register()`. See `apps/docs/content/docs/core/tokens.mdx` for the full reference.
+Resolution is deterministic: longest prefix first, prefix-less types only when no prefix matches, local (step, then command) types over global ones, and same-scope collisions resolved by `tokens.resolve` or reported as `ambiguous`. Statuses are `pending`, `valid`, `invalid`, `error` and `ambiguous`; `snapshot.tokenFeedback` aggregates them independently of rendering, and `CommandPalette` shows it as `banner`, `loader`, `none` or your own component. Global types can be registered at runtime with `engine.tokens.register()`. `settleTokens()` rejects with an `AbortError` and `signal` is aborted when the palette closes or is destroyed; side effects started by a command remain its responsibility. See `apps/docs/content/docs/core/tokens.mdx` for the full reference.
 
 ## Local development
 

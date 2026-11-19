@@ -50,19 +50,48 @@ export function createTokenTypeRegistry(onChange: () => void, initial: readonly 
       types.set(id, { ...type, values } as AnyType); onChange();
     },
     list: () => [...types.values()],
-    reset(list) { fill(list); onChange(); },
+    reset(list) {
+      const current = [...types.values()];
+      if (current.length === list.length && list.every((type, i) => equivalentTokenTypes(type, current[i]))) return;
+      fill(list); onChange();
+    },
   };
 }
 
 /** A token located in the input, before validation. `type` is absent when the token is ambiguous. */
 export type TokenMatch = { type?: AnyType; candidates: AnyType[]; scope: TokenScopeKind; prefix: string; value: string; raw: string; start: number; end: number };
 
+// Private clones: the developer's RegExp (and its lastIndex) is never touched.
+const clones = new WeakMap<RegExp, RegExp>();
+/**
+ * Tests a whole word with the type's rule. A RegExp keeps its pattern and flags, but is always run from the
+ * start of the word: `g` has no effect (no state between words), `y` requires the match to start at the
+ * first character of the word. The match does not have to cover the whole word unless the pattern uses `^…$`.
+ */
 const detects = (type: AnyType, word: string) => {
   const rule = type.detect!;
   if (typeof rule === 'function') return rule(word);
-  rule.lastIndex = 0;
-  return rule.test(word);
+  let clone = clones.get(rule);
+  if (!clone) { clone = new RegExp(rule.source, rule.flags); clones.set(rule, clone); }
+  clone.lastIndex = 0;
+  return clone.test(word);
 };
+
+const sameValues = (a: readonly TokenValue<unknown>[] | undefined, b: readonly TokenValue<unknown>[] | undefined) =>
+  a === b || (!!a && !!b && a.length === b.length && a.every((item, i) => item.value === b[i].value && item.label === b[i].label && (item.data === b[i].data || JSON.stringify(item.data) === JSON.stringify(b[i].data))));
+
+/** True when two definitions validate a value identically (same id, same `match` function, equal `values`). */
+export function sameValidation(a: AnyType, b: AnyType): boolean {
+  return a === b || (a.id === b.id && a.match === b.match && sameValues(a.values, b.values));
+}
+
+const sameDetection = (a: AnyType, b: AnyType) => (a.prefixMode ?? 'required') === (b.prefixMode ?? 'required') && a.prefix === b.prefix
+  && (a.detect === b.detect || (a.detect instanceof RegExp && b.detect instanceof RegExp && a.detect.source === b.detect.source && a.detect.flags === b.detect.flags));
+
+/** True when two definitions are interchangeable: same detection and same validation. */
+export function equivalentTokenTypes(a: AnyType, b: AnyType): boolean {
+  return a === b || (sameValidation(a, b) && sameDetection(a, b) && a.label === b.label);
+}
 
 /**
  * Locates tokens in `query`. Deterministic rules, per whitespace-separated word:

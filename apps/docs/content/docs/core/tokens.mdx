@@ -44,6 +44,15 @@ engine.setQuery('assign @alice');
 | `values` | Optional value registry `{ value, label?, data? }[]`, matched case-insensitively. |
 | `match` | Custom validator `(value, { signal, type })`, synchronous or asynchronous. Mutually exclusive with `values`. |
 
+### `detect` and RegExp flags
+
+A `RegExp` is tested against each whole word, always from the start of the word. Cmdly works on a private copy: your instance and its `lastIndex` are never modified. Flags keep their native meaning (`i`, `u`, `s`, `m`…), with two precisions:
+
+- `g` has no effect: no state is carried from one word, keystroke or engine to the next.
+- `y` (sticky) requires the match to start at the first character of the word, as if the pattern began with `^`.
+
+Without `^…$`, the pattern may match part of the word (`/x\d/` accepts `ax1`). A `detect` function is called as is; any state it keeps is yours.
+
 Without `values` or `match`, any non-empty value is valid. `defineTokenType()` infers the type of `data`. Invalid definitions throw `CmdlyError` with code `INVALID_TOKEN_TYPE`.
 
 ### `match` results
@@ -54,7 +63,9 @@ Asynchronous validations are `pending` first. When a token changes or disappears
 
 ## Statuses
 
-`pending`, `valid`, `invalid`, `error`, or `ambiguous`. Each `Token` carries `id` (stable for its lifetime), `type`, `candidates`, `prefix`, `value`, `raw`, `start`, `end`, `status`, and optionally `data`, `message`, `error` and `step` (the step where it was typed).
+`pending`, `valid`, `invalid`, `error`, or `ambiguous`. Each `Token` carries `id`, `type`, `candidates`, `prefix`, `value`, `raw`, `start`, `end`, `status`, and optionally `data`, `message`, `error` and `step` (the step where it was typed).
+
+`id` is stable for the token's lifetime and usable as a React key. Identical tokens (same scope, type and value) are tracked per occurrence: in `@a @a`, deleting the first `@a` leaves one token that keeps the first id, and the second occurrence's validation is cancelled. The result is the same since the value is the same.
 
 ## Scopes and collisions
 
@@ -78,25 +89,33 @@ const tokens = {
 
 `engine.tokens.register(type)` adds or replaces a global type and returns a disposer; `engine.tokens.unregister(id)` removes it; `engine.tokens.setValues(id, values)` replaces a value registry (not available for `match` types). `engine.setOptions({ tokens })` replaces all global types and the resolver. Local types follow their commands: register the command again to change them. Prefer `match` over `values` when data already lives elsewhere; Cmdly never requires duplicating it.
 
+Replacing a type cancels the validation of current tokens of that type and validates them again with the new definition; late results of the old one are ignored. Re-applying **equivalent** definitions (same id, prefix or `detect`, same `match` function, equal `values`) changes nothing: no revalidation, no new snapshot. This is what makes `tokens={{ types: [...] }}` safe in React, as long as `match` functions are stable: declare them outside the component (or memoize them), otherwise each render is a real change. Changing only `resolve` re-resolves current tokens.
+
+Captured tokens are not affected by later changes: they finish validating with the definition they were captured with, even if the type is replaced or unregistered.
+
 ## Captured tokens and execution
 
-Selecting an item captures the tokens of the current query along the workflow path, like answers. Going back drops the tokens captured by the steps you leave; going forward restores them. Captured tokens keep validating while you navigate and are aborted only when the palette closes.
+Selecting an item captures the tokens of the current query along the workflow path, like answers. Going back leaves the tokens captured by the steps you leave, and the query of a step you return to is empty, as before. Going forward (between steps, into submenus, or back to the final step) restores exactly the tokens captured the first time. Navigation never cancels captured validations.
 
-`run` receives `{ tokens, settleTokens }` as its second argument (inside the `context` object for registry commands, which also reaches `options` and `when`). `settleTokens()` resolves once no captured token is pending. Whether to wait, refuse or proceed is up to the command. These fields are present only when tokens are configured, so existing commands keep receiving exactly what they did before.
+`run` receives `{ tokens, settleTokens, signal }` as its second argument (inside the `context` object for registry commands, which also reaches `options` and `when`). These fields are present only when tokens are configured, so existing commands keep receiving exactly what they did before.
+
+- `settleTokens()` resolves once no captured token is pending, and **rejects with an `AbortError`** once the palette is closed or destroyed, even if every token had already settled.
+- `signal` is aborted when the palette is closed or destroyed, never by navigation. Pass it to your own requests.
+- Whether to wait, refuse or proceed is up to the command. Cmdly ignores the result of a run that outlives its session, but **it cannot undo side effects**: check `signal` (or let `settleTokens()` reject) before acting.
 
 ## Feedback
 
-`snapshot.tokenFeedback` aggregates the current and captured tokens independently of any rendering: `status` (`error` > `ambiguous` > `invalid` > `pending` > `valid`, or `idle`), `pending` and `issues`. Empty tokens are ignored.
+`snapshot.tokenFeedback` aggregates the current and captured tokens independently of any rendering: `status` (`error` > `ambiguous` > `invalid` > `pending` > `valid`, or `idle`), `pending` and `issues`. Empty tokens are ignored. `snapshot.tokensEnabled` tells whether tokens can be recognized at the current position or were captured.
 
 `CommandPalette` renders it globally through `tokenFeedback`:
 
-- `'banner'` (default): lists issues and the validation in progress, linked to the input with `aria-describedby`; each issue is announced once in a polite live region.
-- `'loader'`: shows a global indicator and sets `aria-busy` on the list while tokens are pending.
+- `'banner'` (default): lists issues and the validation in progress, linked to the input with `aria-describedby`. Each issue is announced once per status in a polite live region. The announcement is cleared when the issue it describes disappears, and an identical follow-up message is announced again.
+- `'loader'`: shows a global indicator and sets `aria-busy` on the list while tokens are pending; every validation episode is announced, and the announcement is cleared when it ends.
 - `'none'`: renders nothing; read `state.tokenFeedback` from `useCommandEngine`.
-- A component: receives `{ feedback, tokens }` and owns its accessibility.
+- A component: receives `{ feedback, tokens }` (including while `idle`, so it can host its own live region) and owns its accessibility.
 
-Nothing is rendered when no token type is configured.
+The feedback stays visible during the final confirmation step. Live regions and custom components are mounted as soon as tokens become possible (a `tokens` prop or local types in the current scope), before the first message. Nothing is rendered when no token type is configured. Built-in texts are in English; use `message` in `match` results or a custom component to localize them.
 
 ## Limitations
 
-No value autocompletion, no quoted values or values containing spaces, prefixes are recognized only at the start of a word, `detect` is synchronous, there is no built-in debounce (use `signal`), no per-type feedback, local types cannot be registered independently of their command yet, and step option loaders are not reloaded when tokens change.
+No value autocompletion, no quoted values or values containing spaces, prefixes are recognized only at the start of a word, `detect` is synchronous, there is no built-in debounce (use `signal`), no per-type feedback, built-in feedback texts are English only, local types cannot be registered independently of their command yet, captured tokens are not revalidated when their type changes, and step option loaders are neither reloaded when tokens change nor aborted.

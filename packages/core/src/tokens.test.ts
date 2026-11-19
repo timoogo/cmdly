@@ -63,6 +63,20 @@ describe('tokenize', () => {
       expect(ids('x1 x2 x3', [global(words)])).toEqual(['word', 'word', 'word']);
     });
 
+    it('never mutates the RegExp instance and keeps native flag semantics', () => {
+      const global = /^x\d$/g, sticky = /x\d/y, plain = /x\d/;
+      global.lastIndex = 7; sticky.lastIndex = 3;
+      expect(ids('x1 x2 x3', [{ kind: 'global', types: [{ id: 'g', prefixMode: 'none', detect: global }] }])).toEqual(['g', 'g', 'g']);
+      expect(global.lastIndex).toBe(7);
+      // `y`: the match must start at the first character of the word; without it, anywhere in the word.
+      expect(tokenize('x1 ax1', [{ kind: 'global', types: [{ id: 'y', prefixMode: 'none', detect: sticky }] }]).matches.map(match => match.raw)).toEqual(['x1']);
+      expect(sticky.lastIndex).toBe(3);
+      expect(tokenize('x1 ax1', [{ kind: 'global', types: [{ id: 'p', prefixMode: 'none', detect: plain }] }]).matches.map(match => match.raw)).toEqual(['x1', 'ax1']);
+      const insensitive = /^abc$/gi;
+      expect(ids('ABC abc', [{ kind: 'global', types: [{ id: 'i', prefixMode: 'none', detect: insensitive }] }])).toEqual(['i', 'i']);
+      expect(insensitive.lastIndex).toBe(0);
+    });
+
     it('never tests a word that starts with an active prefix', () => {
       const any: TokenType = { id: 'any', prefixMode: 'none', detect: () => true };
       expect(ids('@alice bob', [global(user, any)])).toEqual(['user', 'any']);

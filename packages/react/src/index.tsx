@@ -145,7 +145,10 @@ function OpenPalette({ commands, defaults, callbacks, strategies, plugins, token
   const start = state.canBack ? Math.floor(state.active / state.maxVisibleItems) * state.maxVisibleItems : 0;
   const visibleItems = state.canBack ? state.items.slice(start, start + state.maxVisibleItems) : state.items;
   const message = state.error instanceof Error ? state.error.message : state.error ? (state.loadFailed ? 'Could not load options' : 'Command failed') : null;
-  const feedback = state.tokenFeedback, showFeedback = tokens !== undefined || feedback.status !== 'idle';
+  // Regions are mounted as soon as tokens are possible (and stay mounted) so that live regions exist before their first message.
+  const tokensSeen = useRef(false);
+  if (tokens !== undefined || state.tokensEnabled) tokensSeen.current = true;
+  const feedback = state.tokenFeedback, showFeedback = tokensSeen.current;
   const builtIn = tokenFeedback === 'banner' || tokenFeedback === 'loader';
   const announcement = useTokenAnnouncement(builtIn && showFeedback ? tokenFeedback : 'none', feedback);
   const bannerVisible = tokenFeedback === 'banner' && (feedback.issues.length > 0 || feedback.pending.length > 0);
@@ -158,7 +161,7 @@ function OpenPalette({ commands, defaults, callbacks, strategies, plugins, token
       {feedback.pending.length > 0 && <p data-status="pending">Validating…</p>}
     </div>}
     {busy && <div data-cmdly-token-feedback="loader" data-status="pending">Validating…</div>}
-    {CustomFeedback && feedback.status !== 'idle' && <CustomFeedback feedback={feedback} tokens={state.tokens} />}
+    {CustomFeedback && showFeedback && <CustomFeedback feedback={feedback} tokens={state.tokens} />}
   </>;
   const context: FinalContext = { answers: state.answers, summary: state.summary, status: state.status, error: state.error, result: state.result, execute: actions.execute, back, close: actions.close };
   return <div role="dialog" aria-modal="true" aria-label="Command palette" ref={dialog} onKeyDown={keyDown}>
@@ -174,7 +177,6 @@ function OpenPalette({ commands, defaults, callbacks, strategies, plugins, token
       </>}
     </> : <>
       <label>{state.step?.label ?? (state.canBack ? state.menuLabel : 'Search commands')}<input ref={input} value={state.query} onChange={event => actions.setQuery(event.target.value)} role="combobox" aria-expanded="true" aria-controls={!state.loading && !state.running ? listId : undefined} aria-activedescendant={state.items.length && !state.loading && !state.running ? `${listId}-${state.active}` : undefined} aria-autocomplete="list" aria-describedby={bannerVisible ? feedbackId : undefined} disabled={state.running} /></label>
-      {tokenView}
       {state.canBack && <button type="button" onClick={back} disabled={state.running}>Back</button>}
       <button type="button" onClick={actions.close}>Cancel</button>
       {state.loading && <p role="status">Loading options…</p>}
@@ -182,24 +184,36 @@ function OpenPalette({ commands, defaults, callbacks, strategies, plugins, token
       {message && <div role="alert">{message}{(state.loadFailed || (state.phase === "final" && state.status === "error")) && <button type="button" onClick={actions.retry}>Retry</button>}</div>}
       {!state.loading && !state.running && <ul role="listbox" id={listId} aria-label={state.step?.label ?? state.menuLabel} aria-busy={busy || undefined}>{visibleItems.map((item, offset) => { const i = start + offset; return <li key={'id' in item ? item.id : item.value} id={`${listId}-${i}`} role="option" aria-selected={i === state.active} aria-posinset={i + 1} aria-setsize={state.items.length} onMouseMove={event => { const previous = pointer.current; const moved = previous ? previous.x !== event.clientX || previous.y !== event.clientY : (event.movementX || 0) !== 0 || (event.movementY || 0) !== 0; pointer.current = { x: event.clientX, y: event.clientY }; if (!keyboardNavigation.current || moved) { keyboardNavigation.current = false; actions.setActive(i); } }} onClick={() => actions.select(i)}>{item.label}{renderTag && 'id' in item && (item as CommandView).tags?.map(tag => { const def: ResolvedTagDefinition = { key: tag, ...((item as CommandView & { tagOverrides?: Record<string, Partial<TagDefinition>> }).tagOverrides?.[tag] ?? {}) }; return <span key={tag}>{renderTag(tag, def, item as CommandView)}</span>; })}</li>; })}</ul>}
     </>}
+    {tokenView}
     {state.progress && renderProgress?.(state.progress)}
   </div>;
 }
 
 const visuallyHidden = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 } as const;
 
-/** Polite announcement text: each token is announced once per status; empty tokens are ignored by the core feedback. */
+/**
+ * Polite announcement text. Each issue is announced once per status; the region is cleared when what it
+ * says is no longer true, and an identical follow-up message is made distinct so it is announced again.
+ */
 function useTokenAnnouncement(mode: 'banner' | 'loader' | 'none', feedback: TokenFeedback): string {
   const [message, setMessage] = useState('');
-  const announced = useRef(new Set<string>()), wasPending = useRef(false);
+  const announced = useRef(new Set<string>()), spoken = useRef(new Set<string>()), wasPending = useRef(false);
   useEffect(() => {
     if (mode === 'none') return;
-    const parts: string[] = [];
     const pending = feedback.pending.length > 0;
-    if (mode === 'loader') { if (pending && !wasPending.current) parts.push('Validating…'); }
-    else for (const token of feedback.issues) { const key = `${token.id}:${token.status}`; if (!announced.current.has(key)) { announced.current.add(key); parts.push(describeTokenIssue(token)); } }
+    let next: string | undefined;
+    if (mode === 'loader') {
+      if (pending && !wasPending.current) next = 'Validating…';
+      else if (!pending && wasPending.current) next = '';
+    } else {
+      const keys = feedback.issues.map(token => `${token.id}:${token.status}`);
+      const fresh = feedback.issues.filter((_, i) => !announced.current.has(keys[i]));
+      announced.current = new Set(keys);
+      if (fresh.length) { next = fresh.map(describeTokenIssue).join('. '); spoken.current = new Set(fresh.map(token => `${token.id}:${token.status}`)); }
+      else if (![...spoken.current].some(key => announced.current.has(key))) { next = ''; spoken.current = new Set(); }
+    }
     wasPending.current = pending;
-    if (parts.length) setMessage(parts.join('. '));
+    if (next !== undefined) { const text = next; setMessage(previous => text && previous.replace(/\u00a0$/, '') === text ? (previous.endsWith('\u00a0') ? text : `${text}\u00a0`) : text); }
   }, [mode, feedback]);
   return message;
 }

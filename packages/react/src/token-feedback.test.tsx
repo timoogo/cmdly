@@ -74,7 +74,7 @@ describe('token feedback', () => {
   it('renders a custom component with the global feedback and tokens', async () => {
     const Custom = vi.fn(({ feedback, tokens }: TokenFeedbackProps) => <output>{feedback.status}:{tokens.map(token => token.value).join(',')}</output>);
     render(<Palette tokenFeedback={Custom} tokens={{ types: [{ id: 'user', prefix: '@' }] }} />);
-    expect(Custom).not.toHaveBeenCalled();
+    expect(screen.getByRole('status').textContent).toBe('idle:'); // mounted before the first token
     await userEvent.setup().type(screen.getByRole('combobox'), '@a @b');
     expect(screen.getByRole('status').textContent).toBe('valid:a,b');
     expect(document.querySelector('[data-cmdly-token-announcer]')).toBeNull();
@@ -102,5 +102,56 @@ describe('token feedback', () => {
     await user.keyboard('{ArrowDown}{Enter}');
     await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     expect(run.mock.calls[0][1].tokens.map((token: { value: string }) => token.value)).toEqual(['me']);
+  });
+
+  describe('audit fixes', () => {
+    it('announces every loader episode and clears the announcement when validation ends', async () => {
+      const gates: ReturnType<typeof deferred>[] = [];
+      render(<Palette tokenFeedback="loader" tokens={{ types: [{ id: 'user', prefix: '@', match: () => { const gate = deferred(); gates.push(gate); return gate.promise; } }] }} />);
+      const user = userEvent.setup(), input = screen.getByRole('combobox');
+      await user.type(input, '@a');
+      expect(announcer()?.textContent).toBe('Validating…');
+      await act(async () => { gates[gates.length - 1].resolve(true); });
+      await waitFor(() => expect(announcer()?.textContent).toBe(''));
+      await user.type(input, 'b');
+      expect(announcer()?.textContent).toBe('Validating…');
+    });
+
+    it('clears stale banner announcements and re-announces identical messages', async () => {
+      const user = userEvent.setup();
+      render(<Palette tokens={{ types: [{ id: 'user', prefix: '@', values: [{ value: 'ok' }] }] }} />);
+      const input = screen.getByRole('combobox');
+      await user.type(input, '@x');
+      expect(announcer()?.textContent).toBe('"@x" is not valid');
+      await user.clear(input);
+      expect(announcer()?.textContent).toBe('');
+      await user.type(input, '@x'); // a new token with the same text is announced again after clearing
+      expect(announcer()?.textContent).toBe('"@x" is not valid');
+      await user.type(input, ' @x'); // identical text while the previous message stands: made distinct
+      expect(announcer()?.textContent).toBe('"@x" is not valid\u00a0');
+      await user.type(input, '{Backspace}{Backspace}{Backspace}'); // the announced token is gone: stale message cleared
+      expect(announcer()?.textContent).toBe('');
+      expect(banner()?.textContent).toContain('"@x" is not valid'); // the banner still describes the remaining issue
+    });
+
+    it('keeps the feedback visible during the final confirmation step', async () => {
+      const gate = deferred();
+      render(<Palette tokens={{ types: [{ id: 'user', prefix: '@', match: () => gate.promise }] }} items={[{ id: 'c', label: 'Confirm me', finalStep: { timing: 'before' }, run: vi.fn() }]} />);
+      const user = userEvent.setup();
+      await user.type(screen.getByRole('combobox'), '@slow{Enter}');
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeTruthy();
+      expect(banner()?.textContent).toContain('Validating…');
+      await act(async () => { gate.resolve(false); });
+      await waitFor(() => expect(banner()?.textContent).toContain('"@slow" is not valid'));
+    });
+
+    it('mounts the live region as soon as local token types become active', async () => {
+      render(<Palette items={[{ id: 'c', label: 'Step', steps: [{ id: 's', label: 'Pick', tokens: [{ id: 'p', prefix: '!', values: [] }], options: [{ value: 'x', label: 'X' }] }], run: vi.fn() }]} />);
+      expect(announcer()).toBeNull();
+      await userEvent.setup().keyboard('{Enter}');
+      expect(announcer()?.textContent).toBe('');
+      await userEvent.setup().type(screen.getByRole('combobox'), '!z');
+      expect(announcer()?.textContent).toBe('"!z" is not valid');
+    });
   });
 });
