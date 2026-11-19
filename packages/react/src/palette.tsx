@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import type { CommandView, ResolvedTagDefinition, WorkflowProgress } from '@cmdly/core';
 import { SessionHost, type ExternalEngineProps, type HostedSession, type OwnedEngineProps } from './session-host.js';
@@ -53,7 +53,10 @@ export function CommandPalette(props: CommandPaletteProps) {
   </SessionHost>;
 }
 
-/** Modal container: initial focus, Tab containment and focus restoration around one session view. */
+/**
+ * Modal container: initial focus, Tab containment, light dismiss on an outside press and focus restoration
+ * around one session view.
+ */
 function PaletteSurface({ engine, onDismiss, tokenFeedback, label = 'Command palette', id, renderProgress, renderTag, children }: Omit<PaletteViewProps, 'open' | 'onOpenChange'> & HostedSession) {
   const previousFocus = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
@@ -61,9 +64,31 @@ function PaletteSurface({ engine, onDismiss, tokenFeedback, label = 'Command pal
   }, [engine]);
   const combobox = useCommandCombobox(engine, { tokenFeedback, onDismiss });
   const input = combobox.inputProps.ref;
+  const dialog = useRef<HTMLDivElement | null>(null), setRoot = combobox.rootProps.ref;
+  const setDialog = useCallback((node: HTMLDivElement | null) => { dialog.current = node; setRoot(node); }, [setRoot]);
+  const dismiss = useRef(combobox.dismiss);
+  dismiss.current = combobox.dismiss;
+  // An outside press dismisses like Escape at the root: an owned session closes (aborting a run), an external
+  // one is only hidden. A press on the element that opened the palette is left to it, so a toggle (such as a
+  // bubble's trigger) closes the palette instead of reopening it.
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!dialog.current || dialog.current.contains(target) || previousFocus.current?.contains(target)) return;
+      // A focusable element pressed outside receives focus as usual. On a non-focusable area, focus returns to
+      // the opener, and the browser is kept from blurring it afterwards.
+      if (target instanceof Element && target.closest(tabbable)) restoreFocus.current = false;
+      else event.preventDefault();
+      dismiss.current();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, []);
+  // Cleared when an outside press lands on a focusable element: the browser focuses it after this cleanup runs.
+  const restoreFocus = useRef(true);
   useEffect(() => {
     input.current?.focus();
-    return () => { previousFocus.current?.focus(); };
+    return () => { if (restoreFocus.current) previousFocus.current?.focus(); };
   }, [engine]);
   function keyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== 'Tab') { combobox.rootProps.onKeyDown(event); return; }
@@ -73,7 +98,7 @@ function PaletteSurface({ engine, onDismiss, tokenFeedback, label = 'Command pal
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
-  return <div role="dialog" aria-modal="true" aria-label={label} id={id} ref={combobox.rootProps.ref} onKeyDown={keyDown}>
+  return <div role="dialog" aria-modal="true" aria-label={label} id={id} ref={setDialog} onKeyDown={keyDown}>
     <SessionContent combobox={combobox} renderProgress={renderProgress} renderTag={renderTag}>{children}</SessionContent>
   </div>;
 }
