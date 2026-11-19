@@ -1,6 +1,6 @@
 export type Answers = Record<string, string>;
 export type Option = { value: string; label: string };
-export type Step = { id: string; label: string; options: Option[] | ((answers: Answers) => Promise<Option[]>); when?: (answers: Answers) => boolean };
+export type Step = { id: string; label: string; options: Option[] | ((answers: Answers) => Promise<Option[]>); when?: (answers: Answers) => boolean; /** Token types recognized while this step is active (local scope). */ tokens?: TokenType<any>[] };
 export type ProgressMode = 'global' | 'local';
 export type WorkflowProgress = { mode: ProgressMode; current: number; total: number | null; percentage: number | null; indeterminate: boolean };
 export type BackBehavior = 'preserve' | 'reset' | 'smart';
@@ -64,6 +64,108 @@ export type ErrorMessages = {
   COMMAND_UNAVAILABLE?: (details: { qualifiedId: string }) => string;
 };
 
+
+// ---------------------------------------------------------------------------
+// Tokens (recognized in user input; unrelated to tags)
+// ---------------------------------------------------------------------------
+
+/** Validation status of a recognized token. */
+export type TokenStatus = 'pending' | 'valid' | 'invalid' | 'error' | 'ambiguous';
+
+/** One entry of a token type's optional value registry. */
+export type TokenValue<TData = unknown> = { value: string; label?: string; data?: TData };
+
+/**
+ * Result of a token matcher. Either a plain boolean, or an object discriminated by `valid`
+ * (use the object form to attach typed data or an invalidity message).
+ */
+export type TokenMatchResult<TData = unknown> =
+  | boolean
+  | { valid: true; data: TData }
+  | { valid: false; message?: string };
+
+/** Validates a token value. May be synchronous or asynchronous; honour `signal` to stop obsolete work. */
+export type TokenMatcher<TData = unknown> = (
+  value: string,
+  context: { signal: AbortSignal; type: TokenType<TData> },
+) => TokenMatchResult<TData> | Promise<TokenMatchResult<TData>>;
+
+type TokenTypeBase = { id: string; label?: string };
+type TokenValidation<TData> =
+  | { values?: TokenValue<TData>[]; match?: never }
+  | { match: TokenMatcher<TData>; values?: never };
+type TokenDetection =
+  | { prefixMode?: 'required'; prefix: string; detect?: never }
+  | { prefixMode: 'none'; detect: RegExp | ((word: string) => boolean); prefix?: never };
+
+/**
+ * A kind of token recognized in the input.
+ * - `prefixMode: 'required'` (default): the word must start with `prefix` (one or more characters).
+ * - `prefixMode: 'none'`: no prefix; `detect` decides whether a whole word is a token.
+ * Validation uses `values` (optional registry) or `match` (custom, sync or async); without either,
+ * any non-empty value is valid.
+ */
+export type TokenType<TData = unknown> = TokenTypeBase & TokenValidation<TData> & TokenDetection;
+
+/** A token recognized in the input. Immutable: a new object is published on every change. */
+export type Token<TData = unknown> = {
+  /** Stable identifier for the token's lifetime (usable as a React key). */
+  id: string;
+  /** Id of the selected type; absent when `status` is `'ambiguous'`. */
+  type?: string;
+  /** Ids of the competing types (more than one when several types matched). */
+  candidates: string[];
+  /** The matched prefix; `''` for prefix-less types. */
+  prefix: string;
+  value: string;
+  raw: string;
+  start: number;
+  end: number;
+  status: TokenStatus;
+  data?: TData;
+  message?: string;
+  error?: unknown;
+  /** Step id where the token was typed; absent for the menu. */
+  step?: string;
+};
+
+/** Picks one type among same-prefix candidates of the same scope. Return `undefined` to leave the token ambiguous. */
+export type TokenResolver = (input: {
+  prefix: string;
+  value: string;
+  candidates: TokenType<any>[];
+  scope: 'global' | 'command' | 'step';
+}) => string | undefined;
+
+export type TokenOptions = { types?: TokenType<any>[]; resolve?: TokenResolver };
+
+/** Aggregated, render-independent token feedback. Tokens with an empty value are ignored. */
+export type TokenFeedback = {
+  /** Priority: error > ambiguous > invalid > pending > valid; `'idle'` when there is nothing to report. */
+  status: 'idle' | TokenStatus;
+  pending: Token[];
+  /** Tokens whose status is `'invalid'`, `'error'` or `'ambiguous'`. */
+  issues: Token[];
+};
+
+/** Token data handed to commands at execution time (only when tokens are configured). */
+export type TokenRunContext = {
+  /** Tokens captured along the workflow path, in order. */
+  tokens: Token[];
+  /** Resolves once no captured token is `'pending'`. */
+  settleTokens: () => Promise<Token[]>;
+};
+
+/** Dynamic registry of global token types. */
+export type TokenTypeRegistry = {
+  /** Add a type, replacing any type with the same id. Returns a disposer. */
+  register: (type: TokenType<any>) => () => void;
+  unregister: (id: string) => void;
+  /** Replace the value registry of a type. Throws for types using `match`. */
+  setValues: (id: string, values: TokenValue<any>[] | undefined) => void;
+  list: () => TokenType<any>[];
+};
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -75,9 +177,12 @@ type CommandBase = CommandSettings & {
   tags?: string[];
   steps?: Step[];
   when?: (answers: Answers) => boolean;
+  /** Token types recognized in this command's submenu and steps (local scope). */
+  tokens?: TokenType<any>[];
 };
 
-export type CommandContext<TShared, TRuntime> = { shared: TShared; runtime: TRuntime };
+/** `tokens` and `settleTokens` are present when token recognition is configured. */
+export type CommandContext<TShared, TRuntime> = { shared: TShared; runtime: TRuntime } & Partial<TokenRunContext>;
 
 export type ContextualStep<TShared, TRuntime> = Omit<Step, 'options' | 'when'> & {
   options: Option[] | ((answers: Answers, context: CommandContext<TShared, TRuntime>) => Option[] | Promise<Option[]>);
@@ -108,8 +213,8 @@ export type ContextualCommand<TShared, TRuntime, TTags extends string = string> 
 export type Command = CommandBase & {
   tagOverrides?: TagOverrides;
 } & (
-  | { commands: Command[]; run?: (answers: Answers) => unknown | Promise<unknown> }
-  | { commands?: never; run: (answers: Answers) => unknown | Promise<unknown> }
+  | { commands: Command[]; run?: (answers: Answers, context?: Partial<TokenRunContext>) => unknown | Promise<unknown> }
+  | { commands?: never; run: (answers: Answers, context?: Partial<TokenRunContext>) => unknown | Promise<unknown> }
 );
 
 export type StepView = Omit<Step, 'when' | 'options'>;
@@ -128,6 +233,12 @@ export type EngineSnapshot<TCommand extends CommandView = Command, TRuntime = un
   answers: Answers;
   items: (TCommand | Option)[];
   query: string;
+  /** The query without recognized tokens; used for search. Equals `query` when no token is recognized. */
+  text: string;
+  /** Tokens recognized in the current query. */
+  tokens: Token[];
+  /** Aggregated feedback over the current and captured tokens. */
+  tokenFeedback: TokenFeedback;
   active: number;
   loading: boolean;
   running: boolean;
@@ -147,7 +258,7 @@ export type EngineSnapshot<TCommand extends CommandView = Command, TRuntime = un
 export type EngineCallbacks<TCommand extends CommandView = Command, TRuntime = unknown> = { onNavigate?: (snapshot: EngineSnapshot<TCommand, TRuntime>, context?: CommandContext<unknown, TRuntime>) => void; onExecute?: (command: TCommand, answers: Answers, context?: CommandContext<unknown, TRuntime>) => void; onError?: (error: unknown, snapshot: EngineSnapshot<TCommand, TRuntime>, context?: CommandContext<unknown, TRuntime>) => void; onClose?: (snapshot: EngineSnapshot<TCommand, TRuntime>, context?: CommandContext<unknown, TRuntime>) => void };
 export type EngineStrategies<TCommand extends CommandView = Command, TRuntime = unknown> = { allowTransition?: (from: EngineSnapshot<TCommand, TRuntime>, action: string) => boolean; closeOnComplete?: (command: TCommand, answers: Answers, finalStep: FinalStep | null, context?: CommandContext<unknown, TRuntime>) => boolean };
 export type EnginePlugin<TCommand extends CommandView = Command, TRuntime = unknown> = { setup: (engine: CommandEngine<TCommand, TRuntime>) => void | (() => void) };
-export type EngineOptions = { commands: Command[]; defaults?: CommandSettings; callbacks?: EngineCallbacks; strategies?: EngineStrategies; plugins?: EnginePlugin[] };
+export type EngineOptions = { commands: Command[]; defaults?: CommandSettings; callbacks?: EngineCallbacks; strategies?: EngineStrategies; plugins?: EnginePlugin[]; tokens?: TokenOptions };
 export type RegistryRuntime<TRuntime> = [TRuntime] extends [undefined] ? unknown : TRuntime;
 export type RequiredRuntime<TRuntime> = RegistryRuntime<TRuntime> & ({} | null);
 
@@ -167,6 +278,8 @@ export type RegistryEngineOptions<TShared = undefined, TRuntime = undefined, TRu
   callbacks?: EngineCallbacks<CommandView, RegistryRuntime<TRuntime>>;
   strategies?: EngineStrategies<CommandView, RegistryRuntime<TRuntime>>;
   plugins?: EnginePlugin<CommandView, RegistryRuntime<TRuntime>>[];
+  /** Global token types and collision resolver. */
+  tokens?: TokenOptions;
   /** Controls global-command deduplication. Defaults to `"unique"`. */
   globalDisplay?: GlobalDisplayMode;
   /**
@@ -178,7 +291,7 @@ export type RegistryEngineOptions<TShared = undefined, TRuntime = undefined, TRu
   ? { runtime?: () => RegistryRuntime<TRuntime> | Promise<RegistryRuntime<TRuntime>> }
   : { runtime: () => RequiredRuntime<TRuntime> | Promise<RequiredRuntime<TRuntime>> });
 
-export type CommandEngine<TCommand extends CommandView = Command, TRuntime = unknown> = { getSnapshot: () => EngineSnapshot<TCommand, TRuntime>; subscribe: (listener: () => void) => () => void; setCommands: (commands: Command[]) => void; setOptions: (options: { commands?: Command[]; defaults?: CommandSettings; callbacks?: EngineCallbacks<TCommand, TRuntime>; strategies?: EngineStrategies<TCommand, TRuntime> }) => void; select: (index: number) => void; back: () => void; forward: () => void; setQuery: (query: string) => void; setActive: (index: number) => void; retry: () => void; execute: () => Promise<void>; close: () => void; destroy: () => void };
+export type CommandEngine<TCommand extends CommandView = Command, TRuntime = unknown> = { getSnapshot: () => EngineSnapshot<TCommand, TRuntime>; subscribe: (listener: () => void) => () => void; setCommands: (commands: Command[]) => void; setOptions: (options: { commands?: Command[]; defaults?: CommandSettings; callbacks?: EngineCallbacks<TCommand, TRuntime>; strategies?: EngineStrategies<TCommand, TRuntime>; tokens?: TokenOptions }) => void; tokens: TokenTypeRegistry; select: (index: number) => void; back: () => void; forward: () => void; setQuery: (query: string) => void; setActive: (index: number) => void; retry: () => void; execute: () => Promise<void>; close: () => void; destroy: () => void };
 
 export type RegistryCommandEngine<TRuntime = undefined, TRuntimeRequired extends boolean = boolean> = Omit<CommandEngine<CommandView, RegistryRuntime<TRuntime>>, 'execute'> & {
   execute: (options?: { runtime: [TRuntimeRequired] extends [false] ? RegistryRuntime<TRuntime> : RequiredRuntime<TRuntime> }) => Promise<void>;

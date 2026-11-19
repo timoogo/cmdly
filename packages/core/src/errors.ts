@@ -6,7 +6,9 @@ export type CmdlyErrorCode =
   | 'TAG_CONFLICT'
   | 'UNKNOWN_TAG'
   | 'INVALID_TAG_OVERRIDE'
-  | 'COMMAND_UNAVAILABLE';
+  | 'COMMAND_UNAVAILABLE'
+  | 'INVALID_TOKEN_TYPE'
+  | 'INVALID_TOKEN_MATCH';
 
 /** Details carried by each error code. */
 export type CmdlyErrorDetails = {
@@ -14,6 +16,8 @@ export type CmdlyErrorDetails = {
   UNKNOWN_TAG: { tag: string; commandId: string; allowedTags: string[] };
   INVALID_TAG_OVERRIDE: { tag: string; commandId: string };
   COMMAND_UNAVAILABLE: { qualifiedId: string };
+  INVALID_TOKEN_TYPE: { typeId: string; reason: string };
+  INVALID_TOKEN_MATCH: { typeId: string; value: string; result: unknown };
 };
 
 /**

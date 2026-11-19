@@ -1,8 +1,12 @@
-import type { Frame, Level, Position } from './engine-state.js';
+import type { Frame, Level, Position, TokenCell } from './engine-state.js';
+import { createTokenTypeRegistry, evaluateToken, getTokenFeedback, tokenize } from './tokens.js';
+import type { TokenMatch, TokenOutcome, TokenScope } from './tokens.js';
 import { key, clearSavedBranch, resolveSetting, resolveFinalConfig, summarizeAnswers, calculateProgress } from './workflow.js';
 import { CommandUnavailableError, CmdlyError } from './errors.js';
-import type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions, GlobalDisplayMode, TagDefinition, TagCatalog, TagVariant, TagOverrides, ResolvedTagDefinition, ErrorMessages, CreateRegistryOptions } from './types.js';
-export type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions, GlobalDisplayMode, TagDefinition, TagCatalog, TagVariant, TagOverrides, ResolvedTagDefinition, ErrorMessages, CreateRegistryOptions } from './types.js';
+import type { Token, Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions, GlobalDisplayMode, TagDefinition, TagCatalog, TagVariant, TagOverrides, ResolvedTagDefinition, ErrorMessages, CreateRegistryOptions, TokenRunContext } from './types.js';
+export type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions, GlobalDisplayMode, TagDefinition, TagCatalog, TagVariant, TagOverrides, ResolvedTagDefinition, ErrorMessages, CreateRegistryOptions, TokenStatus, TokenValue, TokenMatchResult, TokenMatcher, TokenType, Token, TokenResolver, TokenOptions, TokenFeedback, TokenRunContext, TokenTypeRegistry } from './types.js';
+export { defineTokenType, getTokenFeedback, tokenize, validateTokenType } from './tokens.js';
+export type { TokenScope, TokenScopeKind, TokenMatch } from './tokens.js';
 export { createCommandRegistry, mergeTagCatalogs } from './registry.js';
 export { CommandUnavailableError, CmdlyError } from './errors.js';
 export type { CmdlyErrorCode, CmdlyErrorDetails } from './errors.js';
@@ -92,6 +96,11 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
   let options: Option[] = [], loading = false, running = false, error: unknown = null, loadFailed = false;
   let status: FinalStatus = 'idle', result: unknown = undefined, closed = false, destroyed = false, generation = 0, finalVisible = false;
   let forward: Position[] = [];
+  // Tokens: `liveCells` belong to the current query; captured cells travel with frames/levels like answers.
+  let tokenResolve = config.tokens?.resolve, tokenConfigured = config.tokens !== undefined, tokenSeq = 0;
+  let liveCells: TokenCell[] = [], finalTokens: TokenCell[] = [], transitionTokens: TokenCell[] | undefined, text = '';
+  const pendingCells = new Set<TokenCell>();
+  const tokenTypes = createTokenTypeRegistry(() => { tokenConfigured = true; if (destroyed) return; refreshTokens(); publish(); }, config.tokens?.types ?? []);
   type Session = { state: 'preparing' | 'ready' | 'failed'; runtime: unknown; used: boolean };
   let session: Session | undefined;
   const missingRuntimeError = new Error('Runtime is required');
@@ -105,7 +114,7 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
     if (!origin) return undefined;
     if (!session || session.state !== 'ready') throw new Error('Runtime is not prepared');
     if (origin.runtimeRequired && session.runtime === undefined) throw missingRuntimeError;
-    session.used = true; return { shared: origin.shared, runtime: session.runtime };
+    session.used = true; return withTokens({ shared: origin.shared, runtime: session.runtime }, selected);
   };
   const evaluate = (callback: (answers: Answers) => boolean, answers: Answers, selected: Command) => {
     const origin = originFor(selected), context = contextFor(selected), evaluationGeneration = generation;
@@ -129,7 +138,7 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
     if (!origin || !origin.isValid()) return undefined;
     if (invocationContext && invocationCommand === selected) return invocationContext;
     if (session?.state !== 'ready' || (origin.runtimeRequired && session.runtime === undefined)) return undefined;
-    return { shared: origin.shared, runtime: session.runtime };
+    return withTokens({ shared: origin.shared, runtime: session.runtime }, selected);
   };
   const menuNeedsContext = () => !!registry && (path[path.length - 1]?.command.commands ?? config.commands).some(item => !!item.when);
 
@@ -137,6 +146,57 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
   const chain = () => [...path.map(level => level.command), ...(command ? [command] : [])];
   const currentFrame = () => frames[frames.length - 1];
   const currentStep = () => command && currentFrame() ? command.steps?.[currentFrame().step] : undefined;
+  const currentTokens = () => transitionTokens ?? ((phase === 'final' || phase === 'running') ? finalTokens : currentFrame()?.tokens ?? path[path.length - 1]?.tokens ?? []);
+  const tokensEnabled = (selected?: Command) => tokenConfigured || [...chain(), ...(selected ? [selected] : [])].some(item => !!item.tokens || !!item.steps?.some(step => !!step.tokens));
+  const settleCells = async (cells: TokenCell[]): Promise<Token[]> => { for (;;) { const pending = cells.filter(cell => cell.token.status === 'pending'); if (!pending.length) return cells.map(cell => cell.token); await Promise.all(pending.map(cell => cell.done)); } };
+  const tokenContext = (cells: TokenCell[]): TokenRunContext => ({ tokens: cells.map(cell => cell.token), settleTokens: () => settleCells(cells) });
+  function withTokens<T extends object>(context: T, selected?: Command): T { return tokensEnabled(selected) ? { ...context, ...tokenContext(currentTokens()) } : context; }
+  const tokenScopes = (): TokenScope[] => {
+    // Innermost first. Future dynamically registered local types plug in here, next to the declared ones.
+    const scopes: TokenScope[] = [], step = phase === 'step' ? currentStep() : undefined;
+    if (step?.tokens?.length) scopes.push({ kind: 'step', types: step.tokens });
+    for (const item of chain().reverse()) if (item.tokens?.length) scopes.push({ kind: 'command', types: item.tokens });
+    scopes.push({ kind: 'global', types: tokenTypes.list() });
+    return scopes;
+  };
+  const tokenReachable = (cell: TokenCell) => liveCells.includes(cell) || currentTokens().includes(cell);
+  const applyOutcome = (cell: TokenCell, outcome: TokenOutcome) => { cell.token = { ...cell.token, ...outcome }; pendingCells.delete(cell); cell.settle(); };
+  const createCell = (match: TokenMatch, key: string, source: unknown, step: string | undefined): TokenCell => {
+    let settle!: () => void; const done = new Promise<void>(resolve => { settle = resolve; });
+    const token: Token = { id: `token-${++tokenSeq}`, type: match.type?.id, candidates: match.candidates.map(type => type.id), prefix: match.prefix, value: match.value, raw: match.raw, start: match.start, end: match.end, status: 'pending', ...(step === undefined ? {} : { step }) };
+    const cell: TokenCell = { key, source, token, controller: new AbortController(), done, settle, captured: false, dead: false };
+    if (!match.type) { applyOutcome(cell, { status: 'ambiguous' }); return cell; }
+    const outcome = evaluateToken(match.type, match.value, cell.controller.signal);
+    if (!(outcome instanceof Promise)) { applyOutcome(cell, outcome); return cell; }
+    pendingCells.add(cell);
+    void outcome.then(result => { if (cell.dead || destroyed) return; applyOutcome(cell, result); if (tokenReachable(cell)) publish(); });
+    return cell;
+  };
+  const discardCell = (cell: TokenCell) => { if (cell.captured) return; cell.dead = true; pendingCells.delete(cell); cell.controller.abort(); cell.settle(); };
+  const sameSource = (a: unknown, b: unknown) => a === b || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => item === b[i]));
+  const refreshTokens = () => {
+    const parsed = tokenize(query, tokenScopes(), tokenResolve), step = phase === 'step' ? currentStep()?.id : undefined;
+    const previous = new Map(liveCells.map(cell => [cell.key, cell])), counts = new Map<string, number>();
+    text = parsed.text;
+    liveCells = parsed.matches.map(match => {
+      const base = [step ?? '', match.scope, match.type ? match.type.id : `?${match.candidates.map(type => type.id).join(',')}`, match.prefix, match.value].join('\u0000');
+      const n = counts.get(base) ?? 0; counts.set(base, n + 1);
+      const key = `${base}\u0000${n}`, source = match.type ?? match.candidates, old = previous.get(key);
+      if (old && !old.dead && !old.captured && sameSource(old.source, source)) {
+        previous.delete(key);
+        if (old.token.start !== match.start) old.token = { ...old.token, start: match.start, end: match.end };
+        return old;
+      }
+      return createCell(match, key, source, step);
+    });
+    for (const cell of previous.values()) discardCell(cell);
+  };
+  const clearTokens = () => { for (const cell of liveCells) discardCell(cell); liveCells = []; text = ''; };
+  const abortTokens = () => {
+    for (const cell of pendingCells) { cell.dead = true; cell.controller.abort(); cell.token = { ...cell.token, status: 'error', error: cell.controller.signal.reason }; cell.settle(); }
+    pendingCells.clear(); liveCells = []; finalTokens = []; text = '';
+  };
+  const capture = (base: TokenCell[]) => { for (const cell of liveCells) cell.captured = true; return [...base, ...liveCells]; };
   const currentAnswers = () => (phase === 'final' || phase === 'running') ? finalAnswers : currentFrame()?.answers ?? path[path.length - 1]?.answers ?? {};
   const setting = <K extends keyof CommandSettings>(name: K): CommandSettings[K] => resolveSetting(chain(), name, config.defaults?.[name]);
   const behavior = () => setting('backBehavior') ?? 'smart';
@@ -150,9 +210,9 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
   const getItems = (): (Command | Option)[] => {
     if (closed || phase === 'final' || phase === 'running') return [];
     const source = command ? options : path[path.length - 1]?.command.commands ?? config.commands;
-    if (source === cachedSource && path === cachedPath && command === cachedCommand && query === cachedQuery && phase === cachedPhase) return cachedItems;
-    const search = query.toLowerCase();
-    cachedSource = source; cachedPath = path; cachedCommand = command; cachedQuery = query; cachedPhase = phase;
+    if (source === cachedSource && path === cachedPath && command === cachedCommand && text === cachedQuery && phase === cachedPhase) return cachedItems;
+    const search = text.toLowerCase();
+    cachedSource = source; cachedPath = path; cachedCommand = command; cachedQuery = text; cachedPhase = phase;
     visibility.clear();
     cachedItems = source.filter(item => {
       if (command) return !search || item.label.toLowerCase().includes(search);
@@ -182,7 +242,7 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
       };
     }
     const requested = setting('maxVisibleItems');
-    return { context: capturedContext, phase, command, menuLabel: path[path.length - 1]?.command.label ?? 'Commands', step: currentStep(), answers: { ...currentAnswers() }, items, query, active: Math.min(active, Math.max(0, items.length - 1)), loading, running, error, loadFailed, progress: getProgress(), finalStep: final, summary: buildSummary(currentAnswers(), final), status, result, arrowNavigation: setting('arrowNavigation') ?? false, maxVisibleItems: typeof requested === 'number' && Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 50, canBack: !!command || path.length > 0, canForward: forward.length > 0, closed };
+    return { context: capturedContext, phase, command, menuLabel: path[path.length - 1]?.command.label ?? 'Commands', step: currentStep(), answers: { ...currentAnswers() }, items, query, text, tokens: liveCells.map(cell => cell.token), tokenFeedback: getTokenFeedback([...currentTokens(), ...liveCells].map(cell => cell.token)), active: Math.min(active, Math.max(0, items.length - 1)), loading, running, error, loadFailed, progress: getProgress(), finalStep: final, summary: buildSummary(currentAnswers(), final), status, result, arrowNavigation: setting('arrowNavigation') ?? false, maxVisibleItems: typeof requested === 'number' && Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 50, canBack: !!command || path.length > 0, canForward: forward.length > 0, closed };
   };
   if (menuNeedsContext()) loading = true;
   let snapshot = makeSnapshot();
@@ -226,7 +286,7 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
   };
   readyToReport = true;
   if (initialPredicateError !== undefined) report(initialPredicateError);
-  const clearTransient = () => { reportedVisibilityErrors = new WeakMap(); query = ''; active = 0; error = null; loadFailed = false; loading = false; running = false; status = 'idle'; result = undefined; };
+  const clearTransient = () => { reportedVisibilityErrors = new WeakMap(); query = ''; clearTokens(); active = 0; error = null; loadFailed = false; loading = false; running = false; status = 'idle'; result = undefined; };
   const load = () => {
     const step = currentStep(), frame = currentFrame(), selected = command; if (!step || !frame || !selected) return;
     const token = ++generation, selectedChain = chain(), currentKey = key(selectedChain), selectedBehavior = behavior(), origin = originFor(selected), capturedSession = session;
@@ -248,13 +308,17 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
       ensureOrigin(origin); return value;
     }).then(items => { if (!destroyed && generation === token && session === capturedSession) { if (origin && !origin.isValid()) { loading = false; loadFailed = true; report(new CommandUnavailableError(origin.qualifiedId)); publish(); } else if (items) { accept(items); publish(); } } }, err => { if (!destroyed && generation === token && session === capturedSession) { loading = false; loadFailed = true; report(err); publish(); } });
   };
-  const enter = (selected: Command, answers: Answers, start: number, history: Frame[]) => {
+  const enter = (selected: Command, answers: Answers, start: number, history: Frame[], tokens: TokenCell[]) => {
+    transitionTokens = tokens;
+    try { enterWith(selected, answers, start, history, tokens); } finally { transitionTokens = undefined; }
+  };
+  const enterWith = (selected: Command, answers: Answers, start: number, history: Frame[], tokens: TokenCell[]) => {
     const next = selected.steps?.findIndex((step, i) => i >= start && (!step.when || evaluate(step.when, answers, selected))) ?? -1;
     const selectedChain = [...path.map(level => level.command), selected];
     if (behavior() === 'smart') { const stored = saved.get(key(selectedChain)); for (const skipped of selected.steps?.slice(start, next === -1 ? undefined : next) ?? []) if (stored) delete stored[skipped.id]; }
-    if (next !== -1) { command = selected; phase = 'step'; frames = [...history, { step: next, answers }]; clearTransient(); load(); publish(true); return; }
-    if (selected.commands) { path = [...path, { command: selected, frames: history, answers }]; command = null; frames = []; phase = 'menu'; clearTransient(); publish(true); return; }
-    command = selected; frames = history; finalAnswers = answers;
+    if (next !== -1) { command = selected; phase = 'step'; frames = [...history, { step: next, answers, tokens }]; clearTransient(); load(); publish(true); return; }
+    if (selected.commands) { path = [...path, { command: selected, frames: history, answers, tokens }]; command = null; frames = []; phase = 'menu'; clearTransient(); publish(true); return; }
+    command = selected; frames = history; finalAnswers = answers; finalTokens = tokens;
     const final = finalConfig();
     finalVisible = !!final && final.timing !== 'after' && (!final.when || evaluate(final.when, answers, selected));
     if (registry && finalVisible && final?.render) contextFor(selected);
@@ -263,7 +327,7 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
       if (final.timing === 'after') void execute();
     } else { phase = 'running'; clearTransient(); void execute(); }
   };
-  const close = () => { if (!allowed('close')) return false; const closingContext = observedContext(); generation++; session = undefined; invocationContext = undefined; invocationCommand = undefined; rootRetired = false; path = []; command = null; frames = []; forward = []; saved.clear(); options = []; phase = 'menu'; finalAnswers = {}; clearTransient(); closed = true; publish(true); if (!destroyed) { if (registry) config.callbacks?.onClose?.(snapshot, closingContext); else config.callbacks?.onClose?.(snapshot); } return true; };
+  const close = () => { if (!allowed('close')) return false; const closingContext = observedContext(); generation++; session = undefined; invocationContext = undefined; invocationCommand = undefined; rootRetired = false; path = []; command = null; frames = []; forward = []; saved.clear(); options = []; phase = 'menu'; finalAnswers = {}; abortTokens(); clearTransient(); closed = true; publish(true); if (!destroyed) { if (registry) config.callbacks?.onClose?.(snapshot, closingContext); else config.callbacks?.onClose?.(snapshot); } return true; };
   async function execute(execution?: { runtime: never }) {
     if (!allowed('execute') || running || !command || (phase !== 'final' && phase !== 'running')) return;
     const selected = command, answers = { ...finalAnswers }, final = finalConfig();
@@ -282,13 +346,13 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
       if (origin?.runtimeRequired && runtime === undefined) throw new Error('Runtime is required');
       if (destroyed || token !== generation) return;
       if (origin && !origin.isValid()) throw new CommandUnavailableError(origin.qualifiedId);
-      invocationContext = origin ? { shared: origin.shared, runtime } : undefined;
+      invocationContext = origin ? withTokens({ shared: origin.shared, runtime }, selected) : undefined;
       invocationCommand = selected;
       if (registry && invocationContext) { publish(); if (destroyed || token !== generation) return; ensureOrigin(origin); }
       if (registry) config.callbacks?.onExecute?.(selected, answers, invocationContext); else config.callbacks?.onExecute?.(selected, answers);
       if (destroyed || token !== generation) return;
       if (origin && !origin.isValid()) throw new CommandUnavailableError(origin.qualifiedId);
-      const value = origin ? await (selected.run as unknown as (answers: Answers, context: { shared: unknown; runtime: unknown }) => unknown)(answers, { shared: origin.shared, runtime }) : await selected.run!(answers);
+      const value = origin ? await (selected.run as unknown as (answers: Answers, context: { shared: unknown; runtime: unknown }) => unknown)(answers, withTokens({ shared: origin.shared, runtime }, selected)) : tokensEnabled(selected) ? await selected.run!(answers, tokenContext(finalTokens)) : await selected.run!(answers);
       if (destroyed || token !== generation) return;
       running = false; status = 'success'; result = value; phase = 'final';
       if (origin && !origin.isValid()) { finalVisible = false; publish(); return; }
@@ -310,9 +374,9 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
   const back = () => {
     if (!allowed('back') || running || (!command && !path.length)) return;
     const selectedBehavior = behavior();
-    if (selectedBehavior !== 'reset') forward.push({ path, command, frames, phase, answers: finalAnswers, status, result, error, finalVisible }); else forward = [];
+    if (selectedBehavior !== 'reset') forward.push({ path, command, frames, phase, answers: finalAnswers, tokens: finalTokens, status, result, error, finalVisible }); else forward = [];
     generation++; invocationContext = undefined; invocationCommand = undefined; clearTransient();
-    if (phase === 'final' && command && frames.length) { if (selectedBehavior === 'reset') { const stored = saved.get(key(chain())); const last = currentFrame(); if (stored && last) for (const item of command.steps?.slice(last.step) ?? []) delete stored[item.id]; } phase = 'step'; finalAnswers = {}; load(); }
+    if (phase === 'final' && command && frames.length) { if (selectedBehavior === 'reset') { const stored = saved.get(key(chain())); const last = currentFrame(); if (stored && last) for (const item of command.steps?.slice(last.step) ?? []) delete stored[item.id]; } phase = 'step'; finalAnswers = {}; finalTokens = []; load(); }
     else if (frames.length > 1 && command) {
       if (selectedBehavior === 'reset') { const stored = saved.get(key(chain())); for (const item of command.steps?.slice(currentFrame().step) ?? []) if (stored) delete stored[item.id]; }
       frames = frames.slice(0, -1); phase = 'step'; load();
@@ -339,14 +403,14 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
         const oldGeneration = generation, oldPath = path, oldQuery = query;
         if (!prepare(() => { if (generation === oldGeneration && path === oldPath && query === oldQuery && getItems()[index] === selected) select(index); }, originFor(selected))) { if (session?.state === 'preparing') publish(); return; }
       }
-      try { ensureOrigin(originFor(selected)); command = selected; enter(selected, { ...path[path.length - 1]?.answers }, 0, []); }
+      try { ensureOrigin(originFor(selected)); command = selected; enter(selected, { ...path[path.length - 1]?.answers }, 0, [], capture(currentTokens())); }
       catch (err) { if (!registry) throw err; if (!destroyed && !closed) { command = null; report(err); publish(); } }
       return;
     }
     const step = currentStep(), frame = currentFrame(); if (!step || !frame) return;
     const selectedChain = chain(), currentKey = key(selectedChain), stored = saved.get(currentKey) ?? {}, option = item as Option;
     if (behavior() === 'smart' && stored[step.id] !== undefined && stored[step.id] !== option.value) { for (const later of command.steps?.slice(frame.step + 1) ?? []) delete stored[later.id]; for (const child of command.commands ?? []) clearBranch([...selectedChain, child]); }
-    stored[step.id] = option.value; saved.set(currentKey, stored); try { enter(command, { ...frame.answers, [step.id]: option.value }, frame.step + 1, frames); } catch (err) { if (!registry) throw err; if (!destroyed && !closed) { report(err); publish(); } }
+    stored[step.id] = option.value; saved.set(currentKey, stored); try { enter(command, { ...frame.answers, [step.id]: option.value }, frame.step + 1, frames, capture(frame.tokens)); } catch (err) { if (!registry) throw err; if (!destroyed && !closed) { report(err); publish(); } }
   };
   const goForward = () => {
     if (!allowed('forward') || loading || running || error || !forward.length) return;
@@ -355,11 +419,11 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
       const value = saved.get(key(chain()))?.[step.id]; if (value === undefined || !options.some(option => option.value === value)) return;
       const answers = { ...frame.answers, [step.id]: value }, next = command.steps?.findIndex((item, i) => i > frame.step && (!item.when || evaluate(item.when, answers, command!))) ?? -1;
       if (next !== -1) { const destination = target.frames[target.frames.length - 1]; if (target.command !== command || destination?.step !== next || JSON.stringify(destination.answers) !== JSON.stringify(answers)) return; }
-      else if (target.phase === 'final' && target.command === command && JSON.stringify(target.answers) === JSON.stringify(answers)) { const final = finalConfig(); if (!final || (final.when && !evaluate(final.when, answers, command))) return; forward.pop(); phase = 'final'; finalAnswers = answers; clearTransient(); status = target.status; result = target.result; error = target.error; finalVisible = target.finalVisible; publish(true); return; }
+      else if (target.phase === 'final' && target.command === command && JSON.stringify(target.answers) === JSON.stringify(answers)) { const final = finalConfig(); if (!final || (final.when && !evaluate(final.when, answers, command))) return; forward.pop(); phase = 'final'; finalAnswers = answers; finalTokens = target.tokens; clearTransient(); status = target.status; result = target.result; error = target.error; finalVisible = target.finalVisible; publish(true); return; }
       else { const destination = target.path[target.path.length - 1]; if (!command.commands || target.command || destination?.command !== command || JSON.stringify(destination.answers) !== JSON.stringify(answers)) return; }
-      forward.pop(); enter(command, answers, frame.step + 1, frames); return;
+      forward.pop(); enter(command, answers, frame.step + 1, frames, capture(frame.tokens)); return;
     }
-    if (!command) { const candidate = target.command ?? target.path[path.length]?.command; if (!candidate || !snapshot.items.includes(candidate)) return; const answers = { ...path[path.length - 1]?.answers }; if ((candidate.backBehavior ?? behavior()) === 'reset' || (!candidate.commands && !candidate.steps?.some(item => !item.when || evaluate(item.when, answers, candidate)))) return; forward.pop(); rootRetired = false; command = candidate; enter(candidate, answers, 0, []); }
+    if (!command) { const candidate = target.command ?? target.path[path.length]?.command; if (!candidate || !snapshot.items.includes(candidate)) return; const answers = { ...path[path.length - 1]?.answers }; if ((candidate.backBehavior ?? behavior()) === 'reset' || (!candidate.commands && !candidate.steps?.some(item => !item.when || evaluate(item.when, answers, candidate)))) return; forward.pop(); rootRetired = false; command = candidate; enter(candidate, answers, 0, [], capture(currentTokens())); }
   };
   const updateOptions: CommandEngine['setOptions'] = values => {
     if (destroyed) return;
@@ -369,17 +433,19 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
       path = path.map(level => { const replacement = candidates.find(item => item.id === level.command.id) ?? level.command; candidates = replacement.commands ?? []; return replacement === level.command ? level : { ...level, command: replacement }; });
       if (command) { const replacement = candidates.find(item => item.id === command!.id); if (replacement) { command = replacement; const step = currentStep(); if (step && Array.isArray(step.options)) options = step.options; } }
     }
+    if (query) refreshTokens();
     const next = makeSnapshot();
     const sameItems = next.items.length === snapshot.items.length && next.items.every((item, index) => { const old = snapshot.items[index]; return item.label === old.label && ('id' in item ? 'id' in old && item.id === old.id : 'value' in old && item.value === old.value); });
     const previousFinal = snapshot.finalStep, nextFinal = next.finalStep;
     const sameFinal = previousFinal === nextFinal || (!!previousFinal && !!nextFinal && previousFinal.timing === nextFinal.timing && previousFinal.closeOnComplete === nextFinal.closeOnComplete && previousFinal.render === nextFinal.render && JSON.stringify(previousFinal.fields) === JSON.stringify(nextFinal.fields));
-    if ((values.commands && !command && !path.length) || !sameItems || !sameFinal || JSON.stringify(next.summary) !== JSON.stringify(snapshot.summary) || next.command?.label !== snapshot.command?.label || next.step?.label !== snapshot.step?.label || next.arrowNavigation !== snapshot.arrowNavigation || next.maxVisibleItems !== snapshot.maxVisibleItems || JSON.stringify(next.progress) !== JSON.stringify(snapshot.progress)) publish();
+    if ((values.commands && !command && !path.length) || !sameItems || !sameFinal || JSON.stringify(next.summary) !== JSON.stringify(snapshot.summary) || next.command?.label !== snapshot.command?.label || next.step?.label !== snapshot.step?.label || next.arrowNavigation !== snapshot.arrowNavigation || next.maxVisibleItems !== snapshot.maxVisibleItems || JSON.stringify(next.progress) !== JSON.stringify(snapshot.progress) || next.text !== snapshot.text || next.tokens.map(token => token.id).join() !== snapshot.tokens.map(token => token.id).join()) publish();
+    if (values.tokens) { tokenResolve = values.tokens.resolve; tokenTypes.reset(values.tokens.types ?? []); }
   };
   const setOptions: CommandEngine['setOptions'] = values => {
     if (registry && 'commands' in values) throw new Error('Cannot set commands on a registry engine; use refreshRegistry()');
     updateOptions(values);
   };
-  const engine: CommandEngine & { refreshRegistry: () => void } = { refreshRegistry: () => { if (!destroyed && !closed) { if (!command && !path.length) { generation++; session = undefined; loading = false; } updateOptions({ commands: readRegistry() }); if (!command && !path.length && menuNeedsContext() && session?.state !== 'ready') { prepare(); publish(); } } }, getSnapshot: () => snapshot, subscribe: listener => { if (destroyed) return () => {}; listeners.add(listener); return () => listeners.delete(listener); }, setCommands: commands => setOptions({ commands }), setOptions, select, back, forward: () => { try { goForward(); } catch (err) { if (!registry) throw err; if (!destroyed && !closed) { report(err); publish(); } } }, setQuery: value => { if (!allowed('query') || query === value) return; query = value; active = 0; publish(); }, setActive: value => { if (!allowed('active')) return; const next = Math.max(0, Math.min(value, snapshot.items.length - 1)); if (next !== active) { active = next; publish(); } }, retry: () => { if (!allowed('retry')) return; if (session?.state === 'failed') { session = undefined; if (prepare()) publish(); } else if (phase === 'final') void execute(); else { load(); publish(); } }, execute, close, destroy: () => { if (destroyed) return; generation++; session = undefined; invocationContext = undefined; invocationCommand = undefined; destroyed = true; let firstError: unknown; let failed = false; for (const cleanup of cleanups.reverse()) { try { cleanup(); } catch (err) { if (!failed) firstError = err; failed = true; } } listeners.clear(); saved.clear(); if (failed) throw firstError; } };
+  const engine: CommandEngine & { refreshRegistry: () => void } = { tokens: { register: tokenTypes.register, unregister: tokenTypes.unregister, setValues: tokenTypes.setValues, list: tokenTypes.list }, refreshRegistry: () => { if (!destroyed && !closed) { if (!command && !path.length) { generation++; session = undefined; loading = false; } updateOptions({ commands: readRegistry() }); if (!command && !path.length && menuNeedsContext() && session?.state !== 'ready') { prepare(); publish(); } } }, getSnapshot: () => snapshot, subscribe: listener => { if (destroyed) return () => {}; listeners.add(listener); return () => listeners.delete(listener); }, setCommands: commands => setOptions({ commands }), setOptions, select, back, forward: () => { try { goForward(); } catch (err) { if (!registry) throw err; if (!destroyed && !closed) { report(err); publish(); } } }, setQuery: value => { if (!allowed('query') || query === value) return; query = value; active = 0; refreshTokens(); publish(); }, setActive: value => { if (!allowed('active')) return; const next = Math.max(0, Math.min(value, snapshot.items.length - 1)); if (next !== active) { active = next; publish(); } }, retry: () => { if (!allowed('retry')) return; if (session?.state === 'failed') { session = undefined; if (prepare()) publish(); } else if (phase === 'final') void execute(); else { load(); publish(); } }, execute, close, destroy: () => { if (destroyed) return; abortTokens(); generation++; session = undefined; invocationContext = undefined; invocationCommand = undefined; destroyed = true; let firstError: unknown; let failed = false; for (const cleanup of cleanups.reverse()) { try { cleanup(); } catch (err) { if (!failed) firstError = err; failed = true; } } listeners.clear(); saved.clear(); if (failed) throw firstError; } };
   try { for (const plugin of config.plugins ?? []) { const cleanup = plugin.setup(engine); if (cleanup) cleanups.push(cleanup); } } catch (err) { try { engine.destroy(); } catch (cleanupError) { throw new Error(`Plugin setup failed (${String(err)}); cleanup also failed (${String(cleanupError)})`); } throw err; }
   if (menuNeedsContext()) { if (prepare()) publish(); }
   return engine as unknown as RegistryCommandEngine<never>;
