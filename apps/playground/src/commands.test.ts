@@ -102,3 +102,20 @@ describe('smart async validation examples', () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe('playground tokens', () => {
+  it('resolves # collisions, validates users asynchronously and runs with tokens', async () => {
+    const { createTokenCommands, tokenOptions } = await import('./tokens');
+    const record = vi.fn();
+    const engine = createCommandEngine({ commands: createTokenCommands(record), tokens: tokenOptions });
+    engine.setQuery('assign @alice #42 #bug bob@example.com');
+    expect(engine.getSnapshot().text).toBe('assign');
+    expect(engine.getSnapshot().tokens.map(token => `${token.type}:${token.status}`)).toEqual(['user:pending', 'issue:valid', 'label:valid', 'email:valid']);
+    engine.select(0);
+    engine.setQuery('!high');
+    expect(engine.getSnapshot().tokens.map(token => `${token.type}:${token.status}`)).toEqual(['priority:valid']);
+    engine.select(1);
+    await vi.waitFor(() => expect(record).toHaveBeenCalled(), { timeout: 2000 });
+    expect(record.mock.calls[0][0].detail).toContain('urgent · Alice Martin');
+  });
+});

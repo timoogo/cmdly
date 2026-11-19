@@ -19,3 +19,9 @@
 @media(max-width:650px){.app{padding:0 20px 50px}.hero{padding:65px 0}.examples,.lower{grid-template-columns:1fr}.examples article+article{border-left:0;border-top:1px solid #27272a}.lower{gap:25px}.badge{display:none}}
 
 .workflow-progress{padding:12px 16px;border-top:1px solid #27272a;color:#a1a1aa;font-size:11px}.progress-track{height:4px;overflow:hidden;background:#27272a;border-radius:999px;margin-top:8px}.progress-indicator{width:100%;height:100%;background:#a1a1aa;transition:transform .15s ease}.progress-track[data-state="indeterminate"] .progress-indicator{width:35%;animation:progress-indeterminate 1.4s ease-in-out infinite}@keyframes progress-indeterminate{from{transform:translateX(-100%)}to{transform:translateX(300%)}}@media(prefers-reduced-motion:reduce){.progress-indicator{transition:none}.progress-track[data-state="indeterminate"] .progress-indicator{animation:none}}
+[data-cmdly-token-feedback], .token-chips { margin: 8px 0; font-size: 13px; color: #7a5c00; }
+[data-cmdly-token-feedback] [data-status="error"], [data-cmdly-token-feedback] [data-status="invalid"] { color: #b42318; }
+.token-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.token-chips span { padding: 2px 8px; border-radius: 999px; background: #f2f0eb; }
+.token-chips span[data-status="valid"] { background: #e3f4e8; }
+.token-chips span[data-status="invalid"], .token-chips span[data-status="error"] { background: #fde8e6; }
