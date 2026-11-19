@@ -170,14 +170,14 @@ function OpenPalette({ commands, defaults, callbacks, strategies, plugins, token
         <dl>{state.summary.map(item => <div key={item.id}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
         {state.status === 'loading' && <p role="status">Running command…</p>}
         {message && <div role="alert">{message}</div>}
-        {state.canBack && <button type="button" onClick={back} disabled={state.running}>Back</button>}
-        {state.finalStep.timing === 'before' && <button type="button" onClick={() => void actions.execute()} disabled={state.running}>{state.status === 'error' ? 'Retry' : 'Confirm'}</button>}
+        {state.canBack && <button type="button" onClick={back} aria-disabled={state.running || undefined}>Back</button>}
+        {state.finalStep.timing === 'before' && <button type="button" onClick={() => void actions.execute()} aria-disabled={state.running || undefined}>{state.status === 'error' ? 'Retry' : 'Confirm'}</button>}
         {state.finalStep.timing === 'after' && state.status === 'error' && <button type="button" onClick={() => void actions.execute()}>Retry</button>}
         <button type="button" onClick={actions.close}>Cancel</button>
       </>}
     </> : <>
-      <label>{state.step?.label ?? (state.canBack ? state.menuLabel : 'Search commands')}<input ref={input} value={state.query} onChange={event => actions.setQuery(event.target.value)} role="combobox" aria-expanded="true" aria-controls={!state.loading && !state.running ? listId : undefined} aria-activedescendant={state.items.length && !state.loading && !state.running ? `${listId}-${state.active}` : undefined} aria-autocomplete="list" aria-describedby={bannerVisible ? feedbackId : undefined} disabled={state.running} /></label>
-      {state.canBack && <button type="button" onClick={back} disabled={state.running}>Back</button>}
+      <label>{state.step?.label ?? (state.canBack ? state.menuLabel : 'Search commands')}<input ref={input} value={state.query} onChange={event => actions.setQuery(event.target.value)} role="combobox" aria-expanded="true" aria-controls={!state.loading && !state.running ? listId : undefined} aria-activedescendant={state.items.length && !state.loading && !state.running ? `${listId}-${state.active}` : undefined} aria-autocomplete="list" aria-describedby={bannerVisible ? feedbackId : undefined} readOnly={state.running} aria-disabled={state.running || undefined} /></label>
+      {state.canBack && <button type="button" onClick={back} aria-disabled={state.running || undefined}>Back</button>}
       <button type="button" onClick={actions.close}>Cancel</button>
       {state.loading && <p role="status">Loading options…</p>}
       {state.running && <p role="status">Running command…</p>}
