@@ -1,8 +1,25 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { createCommandEngine } from '@cmdly/core';
-import type { Command, CommandView, CommandEngine, RegistryCommandEngine, RegistryRuntime, EngineSnapshot, EngineOptions, FinalContext, WorkflowProgress } from '@cmdly/core';
+import type { Command, CommandView, CommandEngine, RegistryCommandEngine, RegistryRuntime, EngineSnapshot, EngineOptions, FinalContext, WorkflowProgress, ResolvedTagDefinition, TagDefinition, CommandRegistry } from '@cmdly/core';
 export * from '@cmdly/core';
+
+/**
+ * Resolve the display definition for a tag on a command view.
+ * Merges command-level `tagOverrides` over the provided catalog entry.
+ *
+ * @example
+ * const def = resolveTagDisplay('search', command, registry.tagCatalog);
+ */
+export function resolveTagDisplay(
+  tag: string,
+  command: CommandView,
+  catalog: Readonly<Record<string, TagDefinition>>,
+): ResolvedTagDefinition {
+  const catalogDef: TagDefinition = catalog[tag] ?? {};
+  const override = (command as CommandView & { tagOverrides?: Record<string, Partial<TagDefinition>> }).tagOverrides?.[tag] ?? {};
+  return { key: tag, ...catalogDef, ...override };
+}
 
 /** Subscribe to a headless engine from React. The caller owns the engine's lifetime. */
 export function useCommandEngine<TRuntime, TRuntimeRequired extends boolean>(engine: RegistryCommandEngine<TRuntime, TRuntimeRequired>): { state: EngineSnapshot<CommandView, RegistryRuntime<TRuntime>>; actions: RegistryCommandEngine<TRuntime, TRuntimeRequired> };
@@ -11,12 +28,30 @@ export function useCommandEngine(input: unknown): unknown {
   const engine = input as CommandEngine<CommandView>;
   return { state: useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot), actions: engine };
 }
-export type CommandPaletteProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & { open: boolean; onOpenChange: (open: boolean) => void; renderProgress?: (progress: WorkflowProgress) => ReactNode };
+export type CommandPaletteProps = Pick<EngineOptions, 'commands' | 'defaults' | 'callbacks' | 'strategies' | 'plugins'> & {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  renderProgress?: (progress: WorkflowProgress) => ReactNode;
+  /**
+   * Custom tag badge renderer. Called for each tag on each command item.
+   * When omitted, no tag badges are rendered by default (headless).
+   *
+   * @param tag - The tag key string.
+   * @param definition - Resolved tag definition (merged catalog + command overrides).
+   * @param command - The command view the tag belongs to.
+   *
+   * @example
+   * renderTag={(tag, def) => (
+   *   <span className={def.className} style={{ color: def.color }}>{def.label ?? tag}</span>
+   * )}
+   */
+  renderTag?: (tag: string, definition: ResolvedTagDefinition, command: CommandView) => ReactNode;
+};
 
 export function CommandPalette(props: CommandPaletteProps) {
   return props.open ? <OpenPalette {...props} /> : null;
 }
-function OpenPalette({ commands, defaults, callbacks, strategies, plugins, onOpenChange, renderProgress }: CommandPaletteProps) {
+function OpenPalette({ commands, defaults, callbacks, strategies, plugins, onOpenChange, renderProgress, renderTag }: CommandPaletteProps) {
   const engine = useMemo(() => createCommandEngine({ commands, defaults, callbacks, strategies }), []);
   const { state, actions } = useCommandEngine(engine);
   const input = useRef<HTMLInputElement>(null), dialog = useRef<HTMLDivElement>(null);
@@ -104,7 +139,7 @@ function OpenPalette({ commands, defaults, callbacks, strategies, plugins, onOpe
       {state.loading && <p role="status">Loading options…</p>}
       {state.running && <p role="status">Running command…</p>}
       {message && <div role="alert">{message}{(state.loadFailed || (state.phase === "final" && state.status === "error")) && <button type="button" onClick={actions.retry}>Retry</button>}</div>}
-      {!state.loading && !state.running && <ul role="listbox" id={listId} aria-label={state.step?.label ?? state.menuLabel}>{visibleItems.map((item, offset) => { const i = start + offset; return <li key={'id' in item ? item.id : item.value} id={`${listId}-${i}`} role="option" aria-selected={i === state.active} aria-posinset={i + 1} aria-setsize={state.items.length} onMouseMove={event => { const previous = pointer.current; const moved = previous ? previous.x !== event.clientX || previous.y !== event.clientY : (event.movementX || 0) !== 0 || (event.movementY || 0) !== 0; pointer.current = { x: event.clientX, y: event.clientY }; if (!keyboardNavigation.current || moved) { keyboardNavigation.current = false; actions.setActive(i); } }} onClick={() => actions.select(i)}>{item.label}</li>; })}</ul>}
+      {!state.loading && !state.running && <ul role="listbox" id={listId} aria-label={state.step?.label ?? state.menuLabel}>{visibleItems.map((item, offset) => { const i = start + offset; return <li key={'id' in item ? item.id : item.value} id={`${listId}-${i}`} role="option" aria-selected={i === state.active} aria-posinset={i + 1} aria-setsize={state.items.length} onMouseMove={event => { const previous = pointer.current; const moved = previous ? previous.x !== event.clientX || previous.y !== event.clientY : (event.movementX || 0) !== 0 || (event.movementY || 0) !== 0; pointer.current = { x: event.clientX, y: event.clientY }; if (!keyboardNavigation.current || moved) { keyboardNavigation.current = false; actions.setActive(i); } }} onClick={() => actions.select(i)}>{item.label}{renderTag && 'id' in item && (item as CommandView).tags?.map(tag => { const def: ResolvedTagDefinition = { key: tag, ...((item as CommandView & { tagOverrides?: Record<string, Partial<TagDefinition>> }).tagOverrides?.[tag] ?? {}) }; return <span key={tag}>{renderTag(tag, def, item as CommandView)}</span>; })}</li>; })}</ul>}
     </>}
     {state.progress && renderProgress?.(state.progress)}
   </div>;

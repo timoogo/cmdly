@@ -1,16 +1,18 @@
 import type { Frame, Level, Position } from './engine-state.js';
 import { key, clearSavedBranch, resolveSetting, resolveFinalConfig, summarizeAnswers, calculateProgress } from './workflow.js';
-import { CommandUnavailableError } from './errors.js';
-import type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions } from './types.js';
-export type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions } from './types.js';
-export { createCommandRegistry } from './registry.js';
+import { CommandUnavailableError, CmdlyError } from './errors.js';
+import type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions, GlobalDisplayMode, TagDefinition, TagCatalog, TagVariant, TagOverrides, ResolvedTagDefinition, ErrorMessages, CreateRegistryOptions } from './types.js';
+export type { Answers, Option, Step, ProgressMode, WorkflowProgress, BackBehavior, FinalStatus, SummaryField, SummaryItem, FinalContext, FinalStep, CommandSettings, CommandContext, ContextualStep, ContextualFinalStep, ContextualCommand, Command, StepView, CommandView, EngineSnapshot, EngineCallbacks, EngineStrategies, EnginePlugin, EngineOptions, RegistryRuntime, RequiredRuntime, RegistryEngineOptions, CommandEngine, RegistryCommandEngine, ResolvedCommand, CommandRegistry, GlobalRegistrationOptions, GlobalDisplayMode, TagDefinition, TagCatalog, TagVariant, TagOverrides, ResolvedTagDefinition, ErrorMessages, CreateRegistryOptions } from './types.js';
+export { createCommandRegistry, mergeTagCatalogs } from './registry.js';
+export { CommandUnavailableError, CmdlyError } from './errors.js';
+export type { CmdlyErrorCode, CmdlyErrorDetails } from './errors.js';
 
 /** Filter an array of commands by tag. */
 export function filterByTag<T extends { tags?: string[] }>(commands: T[], tag: string): T[] {
   return commands.filter(cmd => cmd.tags?.includes(tag));
 }
 
-export { CommandUnavailableError } from './errors.js';
+
 /** Creates a framework-independent workflow store. Async operations are ignored after navigation or destruction. */
 export function createCommandEngine<TShared, TRuntime, TRuntimeRequired extends boolean>(input: RegistryEngineOptions<TShared, TRuntime, TRuntimeRequired>): RegistryCommandEngine<TRuntime, TRuntimeRequired>;
 export function createCommandEngine(input?: EngineOptions): CommandEngine;
@@ -18,6 +20,8 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
   const input = inputValue as EngineOptions | RegistryEngineOptions<never, never>;
   if ('registry' in input && input.registry && 'commands' in input) throw new Error('Provide commands or registry, not both');
   const registry = 'registry' in input ? input.registry : undefined;
+  const globalDisplay: GlobalDisplayMode = ('globalDisplay' in input ? input.globalDisplay : undefined) ?? 'unique';
+  const activeRegistry: string | undefined = 'activeRegistry' in input ? input.activeRegistry : undefined;
   const provenance = new WeakMap<Command, ResolvedCommand<never>>();
   const readRegistry = (): Command[] => {
     if (!registry) throw new Error('Engine has no registry');
@@ -27,8 +31,59 @@ export function createCommandEngine(inputValue: unknown = { commands: [] }): unk
       return entry;
     });
     if (resolved.some(entry => !entry.isValid())) throw new Error('Registry changed while reading');
-    for (const entry of resolved) provenance.set(entry.command as unknown as Command, entry);
-    return resolved.map(entry => entry.command as unknown as Command);
+
+    let entries = resolved;
+
+    if (globalDisplay === 'unique') {
+      // For each global command (by its base id), keep exactly one entry.
+      // Preference order:
+      //   1. `activeRegistry` namespace  → "ns.cmdId"
+      //   2. root-level                   → "cmdId"
+      //   3. first occurrence (fallback)
+      const seenGlobalIds = new Set<string>();
+      const deduplicated: ResolvedCommand<never>[] = [];
+
+      for (const entry of resolved) {
+        if (!entry.isGlobal) {
+          // Local commands are always kept as-is.
+          deduplicated.push(entry);
+          continue;
+        }
+
+        // The base command id is the last segment of the qualified id.
+        const baseId = entry.qualifiedId.split('.').pop()!;
+
+        if (seenGlobalIds.has(baseId)) continue; // already chose a winner for this global
+
+        // Look for the preferred variant:
+        // 1. activeRegistry prefix wins
+        // 2. root-level (no dot) is second best
+        // 3. fall back to current entry
+        let winner = entry;
+        let matched = false;
+        if (activeRegistry) {
+          const preferred = resolved.find(
+            e => e.isGlobal && e.qualifiedId === `${activeRegistry}.${baseId}`,
+          );
+          if (preferred) { winner = preferred; matched = true; }
+        }
+        if (!matched && winner.qualifiedId.includes('.')) {
+          // No activeRegistry match; prefer root-level if one exists
+          const root = resolved.find(
+            e => e.isGlobal && e.qualifiedId === baseId,
+          );
+          if (root) winner = root;
+        }
+
+        seenGlobalIds.add(baseId);
+        deduplicated.push(winner);
+      }
+
+      entries = deduplicated;
+    }
+
+    for (const entry of entries) provenance.set(entry.command as unknown as Command, entry);
+    return entries.map(entry => entry.command as unknown as Command);
   };
   let config: EngineOptions = { ...(input as unknown as EngineOptions), commands: registry ? readRegistry() : (input as EngineOptions).commands };
 

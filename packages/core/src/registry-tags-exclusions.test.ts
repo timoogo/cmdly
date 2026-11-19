@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createCommandRegistry, filterByTag } from './core.js';
+import { createCommandEngine, createCommandRegistry, filterByTag } from './core.js';
 import type { ContextualCommand } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -470,4 +470,31 @@ describe('conflicts and edge cases', () => {
     expect(found.map(c => c.id)).toContain('help');
     expect(found.map(c => c.id)).toContain('ns.help');
   });
+});
+
+it("resolves global commands through mounted registries", () => {
+  const root = createCommandRegistry();
+  const publications = createCommandRegistry();
+  const agents = createCommandRegistry();
+
+  root.mount("publications", publications);
+  root.mount("xiagents", agents);
+
+  root.register("*", {
+    id: "test-cmdly",
+    label: "Test Cmdly",
+    tags: ["test", "global"],
+    run: () => {},
+  });
+
+  for (const command of root.list()) {
+    const resolved = root.resolve(command.id);
+
+    expect(resolved).toBeDefined();
+    expect(resolved?.isValid()).toBe(true);
+  }
+
+  expect(() =>
+    createCommandEngine({ registry: root })
+  ).not.toThrow();
 });
