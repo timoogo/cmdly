@@ -1,15 +1,24 @@
 ---
 title: "Quick Start"
-description: "Create a command and inspect the engine."
+description: "Open a command palette in a React app."
 ---
 
-Create an engine with a command, select the command by its current displayed index, and destroy the engine when its owner is finished.
-```ts
-import { createCommandEngine, type Command } from '@cmdly/core';
+Install `@cmdly/core` and `@cmdly/react`, then render a `CommandPalette` with your commands. The palette creates its engine when it opens and destroys it when it closes; it brings keyboard navigation, search and focus handling, and no styles.
 
-const hello: Command = { id: 'hello', label: 'Say hello', run: () => console.log('Hello!') };
-const engine = createCommandEngine({ commands: [hello] });
-engine.select(0);
-// When finished: engine.destroy();
+```tsx
+import { useState } from 'react';
+import { CommandPalette } from '@cmdly/react';
+import type { Command } from '@cmdly/core';
+
+const commands: Command[] = [{ id: 'hello', label: 'Say hello', run: () => alert('Hello!') }];
+
+export function App() {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button onClick={() => setOpen(true)}>Open commands</button>
+    <CommandPalette commands={commands} open={open} onOpenChange={setOpen} />
+  </>;
+}
 ```
-For a visual interface, see the [React example](/docs/react/integration).
+
+To drive the same commands without React, see [your first command](/docs/getting-started/first-command). **Try it:** run `pnpm dev`, then choose **Simple command** in the playground's *Try it* grid.

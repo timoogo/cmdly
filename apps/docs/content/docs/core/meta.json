@@ -5,6 +5,7 @@
     "navigation",
     "execution",
     "callbacks-strategies-plugins",
+    "tokens",
     "errors"
   ]
 }

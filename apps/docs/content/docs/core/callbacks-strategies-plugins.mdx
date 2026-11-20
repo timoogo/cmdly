@@ -10,3 +10,5 @@ Callbacks and plugin setup are synchronous; returned promises are not awaited. R
 `setOptions()` updates callbacks, strategies, defaults and legacy commands. Core engine plugins are installed when the engine is created. `CommandPalette` installs its plugins in an effect after mount and reinstalls them when the array changes; keep that array stable.
 
 `allowTransition` receives the action strings `select`, `back`, `forward`, `query`, `active`, `retry`, `execute`, and `close`.
+
+**Try it:** the playground installs a plugin that subscribes to each engine and writes “Session closed” to its *Activity* panel each time a session ends.

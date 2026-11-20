@@ -1,10 +1,16 @@
 ---
 title: "Commands and Steps"
-description: "Define commands, groups and workflow choices."
+description: "Define commands, groups, conditional steps and async options."
 ---
 
-A `Command` has `id`, `label`, optional `when`, `steps`, and either `run(answers)` or nested `commands`. A command with children opens its children after its own steps; it does not execute its `run`.
+A `Command` has `id`, `label`, optional `when`, `steps`, and either `run(answers)` or nested `commands`. A command with children opens its children after its own steps; it does not execute its `run`. Answers use step IDs as keys; a child step may shadow a parent ID. Use stable, unique IDs within each menu. Search matches labels, not IDs.
 
-`Step.options` is an array or an asynchronous loader for legacy commands. `Step.when` and `Command.when` receive current answers. Registry commands also receive their owning context. Answers use step IDs as keys; a child step may shadow a parent ID.
+## Conditions
 
-Use stable, unique IDs within each menu. Search matches labels, not IDs.
+`Command.when` controls visibility; `Step.when` controls whether a step is visited. Both receive the current answers; registry commands also receive their owning context.
+
+## Async options
+
+`Step.options` is an array or a loader. A legacy loader returns a promise; contextual registry loaders can return an array or a promise and receive context. While it loads, the snapshot reports `loading`; a failed load exposes `error` and `loadFailed` and can be retried with `retry()`. The engine ignores results made obsolete by navigation, close or destruction, but does not abort the underlying request. Validate network responses in your loader.
+
+**Try it:** run `pnpm dev`, then choose **Steps & conditions** in the playground's *Try it* grid. **Progress & async** loads every step asynchronously, and **Nested commands** shows a child command hidden by `when`.

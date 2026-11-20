@@ -3,6 +3,8 @@
   "pages": [
     "installation",
     "integration",
+    "bubble",
+    "customization",
     "nextjs"
   ]
 }

@@ -1,8 +1,18 @@
 ---
 title: "Execution"
-description: "Run commands and inspect results."
+description: "Run commands, review them in a final step, and inspect results."
 ---
 
-Selecting a leaf without a final step starts it. `execute()` runs a command in its final or running phase and prevents concurrent duplicate execution. Observe `status`, `result`, and `error` in the snapshot; do not rely on rejected promises to report a command failure. A successful command with no final step, or a before final step, closes by default and clears its status and result. Use an applicable final step with `closeOnComplete: false` to retain the result, or use an after final step whose condition passes. The `closeOnComplete` strategy can override the default.
+Selecting a leaf without a final step starts it. `execute()` runs a command in its final or running phase and prevents concurrent duplicate execution. Observe `status`, `result`, and `error` in the snapshot; do not rely on rejected promises to report a command failure.
 
-Closing clears session answers. A closed engine is not reopened: create another instance for a new session. `destroy()` cancels pending results, removes listeners, and runs plugin cleanups.
+## Final steps
+
+A `finalStep` can specify `timing: 'before' | 'after'`, `when`, `fields`, `closeOnComplete`, and `render`. A before step shows a summary and waits for `execute()`; an after step runs first and then shows its result. Final settings are inherited by descendants unless overridden or disabled with `false`.
+
+## Closing
+
+A successful command with no final step, or a before final step, closes by default and clears its status and result. Use an applicable final step with `closeOnComplete: false` to retain the result, or an after final step whose condition passes. The `closeOnComplete` strategy can override the default.
+
+Closing clears session answers. A closed engine is not reopened: create another instance for a new session. The engine owns no UI: `destroy()` it when its owner ends; this cancels pending results, removes listeners, and runs plugin cleanups.
+
+**Try it:** run `pnpm dev`, then choose **Confirmation** in the playground's *Try it* grid. **Deploy** to production waits for confirmation, then keeps its result open (`closeOnComplete: false`): the React views show a completed status and a single Close button; **Progress & async** keeps its result open in an after step.

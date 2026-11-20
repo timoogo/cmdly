@@ -12,4 +12,4 @@ const engine = createCommandEngine({ commands: [hello] });
 engine.select(0);
 // When finished: engine.destroy();
 ```
-A leaf without a final step begins execution after it is selected. Errors are reflected in the snapshot. A successful command closes by default, clearing its result; see [execution](/docs/core/execution) to retain a result.
+This is the headless core that the React palette uses. A leaf without a final step begins execution after it is selected. Errors are reflected in the snapshot. A successful command closes by default, clearing its result; see [execution](/docs/core/execution) to retain a result.

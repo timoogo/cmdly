@@ -10,3 +10,5 @@ Use `select(index)`, `back()`, `forward()`, `setQuery(value)` and `setActive(ind
 ## Snapshot fields
 
 The snapshot includes `phase`, `command`, `menuLabel`, `step`, `answers`, `items`, `query`, `active`, `loading`, `running`, `error`, `loadFailed`, `progress`, `finalStep`, `summary`, `status`, `result`, `arrowNavigation`, `maxVisibleItems`, `canBack`, `canForward`, `closed`, and optional registry `context`. See the [core reference](/docs/api/core) for types.
+
+**Try it:** run `pnpm dev`, then choose **Back behavior** in the playground's *Try it* grid. The same path runs under each strategy: choose Production → United States, go back to Environment, then pick another environment to see which answer is pre-selected. **Progress & async** shows local progress from 0 to 100 %, and **Nested commands** global progress with ← / →.

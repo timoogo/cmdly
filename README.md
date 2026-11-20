@@ -55,7 +55,7 @@ function App() {
 }
 ```
 
-The host controls opening, including any global shortcut. Search filters the current commands or options. Arrow keys and Enter select; Escape goes back or closes, and Cancel closes. Async option failures can be retried; command failures are displayed. Focus enters the dialog, stays within it while open, and returns on close.
+The host controls opening, including any global shortcut. Search filters the current commands or options. Arrow keys and Enter select; Escape goes back from a step or menu, and closes at the root or on a final screen (confirmation or result); Cancel closes. Async option failures can be retried; command failures are displayed. Focus enters the dialog, stays within it while open, and returns on close.
 
 ## API and rationale
 
@@ -63,11 +63,35 @@ The host controls opening, including any global shortcut. Search filters the cur
 
 The object API keeps a command and its workflow together and makes simple commands concise. JSX composition offers greater control over rendering but adds component nesting and boilerplate; this POC favors the requested small API.
 
+## Tokens
+
+Recognize tokens such as `@alice`, `#42` or a prefix-less `bob@example.com` in the input, in the palette and in workflow steps. Cmdly recognizes and validates them (`values` registry or a sync/async `match` with an `AbortSignal`) and hands them to commands; it never filters commands or blocks execution because of them. The remaining text keeps driving search.
+
+```ts
+const user = defineTokenType({
+  id: 'user',
+  prefix: '@',
+  match: async (login, { signal }) => {
+    const person = await findUser(login, signal);
+    return person ? { valid: true, data: person } : { valid: false, message: `Unknown user ${login}` };
+  },
+});
+const email = defineTokenType({ id: 'email', prefixMode: 'none', detect: /^[^\s@]+@[^\s@]+\.\w+$/ });
+
+<CommandPalette commands={commands} tokens={{ types: [user, email] }} tokenFeedback="banner" open={open} onOpenChange={setOpen} />
+
+// In a command: run(answers, context) → context.tokens, await context.settleTokens(), context.signal
+```
+
+Resolution is deterministic: longest prefix first, prefix-less types only when no prefix matches, local (step, then command) types over global ones, and same-scope collisions resolved by `tokens.resolve` or reported as `ambiguous`. Statuses are `pending`, `valid`, `invalid`, `error` and `ambiguous`; `snapshot.tokenFeedback` aggregates them independently of rendering, and `CommandPalette` shows it as `banner`, `loader`, `none` or your own component. Global types can be registered at runtime with `engine.tokens.register()`. `settleTokens()` rejects with an `AbortError` and `signal` is aborted when the palette closes or is destroyed; side effects started by a command remain its responsibility. See `apps/docs/content/docs/core/tokens.mdx` for the full reference.
+
 ## Local development
 
 Run `pnpm install`, `pnpm test`, `pnpm typecheck`, and `pnpm build` from the repository root.
 
 ## Limitations
+
+Tokens: no value autocompletion, no values containing spaces, prefixes are recognized at word starts only, no built-in debounce, and local token types follow their command registration.
 
 The palette owns its semantic markup; built-in styling is not provided. It does not register a global shortcut. Async requests are ignored after navigation but are not aborted. The host is responsible for unique IDs, accessible page-level modal isolation, and HTTP response validation in option loaders.
 
@@ -135,7 +159,7 @@ const commands = [{
 }];
 ```
 
-`before` waits for `execute()` and closes on success by default. `after` runs first and remains open by default; set `closeOnComplete: true` to close after success. Execution errors are captured in the snapshot and passed to `onError`; `execute()` resolves after recording a command failure instead of rejecting with that failure. In a final step `retry()` calls execution again. Applications that need propagation can inspect the snapshot after awaiting `execute()`. `back()` returns to prior choices. Progress counts completed commands and steps; the final screen is not an additional decision.
+`before` waits for `execute()` and closes on success by default; with `closeOnComplete: false` it stays open, and the React views then show a completed status with a single Close button (no second run). `after` runs first and remains open by default; set `closeOnComplete: true` to close after success. Execution errors are captured in the snapshot and passed to `onError`; `execute()` resolves after recording a command failure instead of rejecting with that failure. In a final step `retry()` calls execution again. Applications that need propagation can inspect the snapshot after awaiting `execute()`. `back()` returns to prior choices. Progress counts completed commands and steps; the final screen is not an additional decision.
 
 ### React rendering
 
@@ -166,6 +190,54 @@ For a fully custom React interface, `useCommandEngine(engine)` returns `{ state,
 Optional callbacks `onNavigate`, `onExecute`, `onError`, and `onClose` observe the engine. `strategies.allowTransition(snapshot, action)` can reject an action; `strategies.closeOnComplete(command, answers, finalStep)` overrides the default closing decision. Plugins are optional: each `{ setup(engine) { ...; return cleanup; } }` is installed in array order, and cleanup functions run in reverse order on destruction. Setup errors propagate after cleaning up previously installed plugins. Only these two strategy hooks are currently provided; navigation and history algorithms are not replaceable wholesale. Callback and strategy functions should not throw unless their caller is prepared to handle that error.
 
 The previous `CommandPalette` API remains available from `@cmdly/react`; existing command objects remain valid. Migrate incrementally by importing the engine from `@cmdly/core` only where direct control is needed.
+
+### External engine
+
+Pass `engine` instead of `commands` to display a session you own, for example a registry engine (`createCommandEngine({ registry, runtime })`) or one session shown successively by several interfaces. `engine` excludes `commands`, `defaults`, `callbacks`, `strategies`, `plugins` and `tokens`: configure the engine itself, and call `engine.refreshRegistry()` after registry changes. The palette never closes or destroys an external engine: Escape at the root or on a final screen, Cancel, an outside press and the final step's `close` only call `onOpenChange(false)`, and the query, path, tokens and any running command are kept for the next interface. `engine.close()` is definitive: when the engine closes itself (after a successful run, or because you called it), `onOpenChange(false)` is called and a closed engine is not shown again; create a new one for the next session, and `destroy()` it when you no longer need it. `label` sets the dialog's accessible name (default `'Command palette'`).
+
+### Sessions: hiding versus closing
+
+An interface showing an owned session (`commands`) closes it when the interface closes (Escape at the root or on a final screen, Cancel, outside press, Tab out of a standalone bubble, completion), which aborts a running command; the next opening starts a new session. An interface showing an external engine (`engine`) only hides: query, step, tokens and a running command are kept, and the same engine can be shown successively by the palette, the bubble or a headless view, each resuming where the previous one stopped. `engine.close()` is the definitive close (`callbacks.onClose`, `closed` never resets); Cmdly never calls it, nor `destroy()`, on an external engine.
+
+### Command Bubble
+
+`CommandBubble` is a trigger button that opens and closes a `CommandPalette`; it takes the palette's props (`commands` or `engine`, `tokens`, `tokenFeedback`, …) and the same session rules apply.
+
+```tsx
+const bubble = useRef<CommandBubbleHandle>(null); // open(), close(), toggle()
+<CommandBubble ref={bubble} commands={commands} trigger={<span aria-hidden="true">⌘</span>} />
+```
+
+It is uncontrolled by default (`defaultOpen`) or controlled with `open` and `onOpenChange`, which reports every change: trigger, Escape, Cancel, completion and the ref's actions. `layout` is `'floating'` (default: `position: fixed` in a viewport corner, `placement` `'bottom-right'` by default, `offset` 16 px) or `'inline'` (left in the layout flow). `trigger` replaces the button's content; the button keeps `aria-haspopup="dialog"`, `aria-expanded`, `aria-controls` (while open) and `label` (default `'Command palette'`) as its accessible name and the palette's. The wrapper carries `data-cmdly-bubble`, `data-layout`, `data-placement` and `data-state` for styling, plus `className` and `style`; the palette is rendered next to it, not inside it. The palette closes on an outside press like on Escape (a press on the element that opened it is left to that element, so the trigger toggles); focus returns to the element that opened the palette, unless the press landed on another focusable element, which keeps it. Cmdly expects one `CommandBubble` per application and warns in development when several are mounted. No shortcut is registered: call `toggle()` from your own handler.
+
+With `mode="standalone"`, the bubble opens its own non-modal popover (`role="dialog"`, named by `label`, `data-cmdly-bubble-popover`) instead of the palette, with the same search, steps, tokens and final step. The popover is inside the bubble's wrapper, positioned against it: a floating bubble opens towards the viewport (`data-side`, `data-align`), an inline one opens below, left-aligned, and its wrapper becomes `position: relative; display: inline-block`. It closes on an outside press, when focus moves outside the bubble (Tab is not contained; Shift+Tab to the trigger keeps it open), on Escape at the root, on a final screen or on the focused trigger, and after a successful run unless the command keeps its final step open (`closeOnComplete: false`). Focus returns to the trigger after Escape, Cancel or completion, not after an outside press or Tab. An owned session is closed (and a running command aborted) when the popover closes; an external engine is only hidden and its run continues. Style the trigger with a child selector (`.my-bubble > button`): the popover's buttons are also inside the wrapper.
+
+### Customization
+
+Three levels share the same engine and behaviour:
+
+```tsx
+// 1. Ready to use
+<CommandBubble mode="standalone" commands={commands} />
+
+// 2. Custom trigger element and content; the bubble keeps keyboard, focus, ARIA and announcements
+<CommandBubble mode="standalone" commands={commands} trigger={props => <button {...props} className="pill">Actions</button>}>
+  {command => <MyList command={command} />}
+</CommandBubble>
+
+// 3. Fully headless, in your own container
+function Panel({ onClose }: { onClose: () => void }) {
+  const engine = useCommandSession({ commands, callbacks: { onClose } }); // one session per mount
+  const command = useCommandCombobox(engine); // or useCommandCombobox(myEngine, { onDismiss })
+  return <section {...command.rootProps}>
+    {command.tokens.announcer && <span {...command.tokens.announcer} />}
+    <MyList command={command} />
+  </section>;
+}
+```
+
+`trigger` as a function receives `CommandBubbleTriggerProps` (`ref`, `type`, ARIA, `data-state`, `onClick`, `onKeyDown`) to spread on a focusable element. `children` (also on `CommandPalette`) receives a `CommandCombobox`: `state`, `actions`, `back`, `dismiss`, `rootProps`, `inputProps`, `listboxProps`, `getOptionProps(index)`, `listVisible`, `visibleItems`, `message`, `finalContext` and `tokens`; it replaces the default view (and `renderProgress`/`renderTag`, which only apply to it). In the final phase, render `state.finalStep.render(finalContext)` or your own summary. `useCommandSession` destroys its session on unmount; keep `commands`, `defaults`, `strategies` and `tokens` stable in the component that calls it (`callbacks` may be inline). The hooks never handle Tab: containment is the container's choice.
+
 
 ## Composable command registries
 

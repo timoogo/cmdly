@@ -1,12 +1,15 @@
 import { readFile } from 'node:fs/promises';
 const checks = [
-  ['simple.ts', 'getting-started/quick-start.mdx'],
+  ['quick-start.tsx', 'getting-started/quick-start.mdx'],
   ['simple.ts', 'getting-started/first-command.mdx'],
   ['workflow.ts', 'getting-started/first-workflow.mdx'],
   ['registry.ts', 'registries/create-compose.mdx'],
   ['runtime.ts', 'registries/context-sessions.mdx'],
   ['react.tsx', 'react/integration.mdx'],
   ['next.tsx', 'react/nextjs.mdx'],
+  ['bubble-modes.tsx', 'react/bubble.mdx'],
+  ['bubble.tsx', 'react/customization.mdx'],
+  ['tokens.ts', 'core/tokens.mdx'],
 ];
 for (const [example, page] of checks) {
   const code = await readFile(new URL(`../examples/${example}`, import.meta.url), 'utf8');

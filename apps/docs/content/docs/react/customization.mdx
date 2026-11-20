@@ -1,0 +1,67 @@
+---
+title: "Customization"
+description: "Customize the Command Bubble's trigger and content, or build a headless interface."
+---
+
+Three levels share the same engine and behaviour; pick the lowest one that fits.
+
+1. **Ready to use**: `CommandBubble` with its default, unstyled markup (`mode="trigger"` or `"standalone"`).
+2. **Custom trigger and content**: `trigger` as a function receives `CommandBubbleTriggerProps` to spread on your own element (it must reach a focusable DOM element through `ref`); `children` as a function receives the session's headless state (`CommandCombobox`) and replaces the default view. The bubble keeps opening and closing, Escape, arrows and Enter (`rootProps` on its container), focus management and token announcements. `children` is also accepted by `CommandPalette`.
+3. **Fully headless**: `useCommandSession(options)` owns one session for the lifetime of a component (destroyed on unmount, StrictMode-safe; closed for good by Escape at the root or on a final screen, Cancel or completion, which calls `callbacks.onClose`). `useCommandCombobox(engine, { onDismiss?, tokenFeedback? })` returns the state, actions and props: spread `rootProps` on your container, `inputProps`, `listboxProps` and `getOptionProps(index)`, and render `tokens.announcer` when set. With an engine you created (`createCommandEngine`), pass `onDismiss` to hide your interface without closing the session.
+
+```tsx
+import { useState } from 'react';
+import { CommandBubble, useCommandCombobox, useCommandSession, type Command, type CommandCombobox } from '@cmdly/react';
+
+const commands: Command[] = [{ id: 'hello', label: 'Say hello', run: () => console.log('Hello!') }];
+
+// Level 1: ready to use.
+export const Ready = () => <CommandBubble mode="standalone" commands={commands} />;
+
+// Level 2: custom trigger element and content, behaviour kept by the bubble.
+function List({ command }: { command: CommandCombobox }) {
+  const { inputProps, listboxProps, getOptionProps, visibleItems, listVisible } = command;
+  return <>
+    <input aria-label="Search" {...inputProps} />
+    {listVisible && <ul {...listboxProps}>{visibleItems.map(({ item, index }) =>
+      <li key={index} {...getOptionProps(index)}>{item.label}</li>)}</ul>}
+  </>;
+}
+export const Custom = () => (
+  <CommandBubble mode="standalone" commands={commands} trigger={props => <button {...props} className="pill">Actions</button>}>
+    {command => <List command={command} />}
+  </CommandBubble>
+);
+
+// Level 3: fully headless, in your own container.
+function Panel({ onClose }: { onClose: () => void }) {
+  const engine = useCommandSession({ commands, callbacks: { onClose } }); // stable commands, inline callbacks
+  const command = useCommandCombobox(engine);
+  return <section aria-label="Commands" {...command.rootProps}>
+    {command.tokens.announcer && <span {...command.tokens.announcer} />}
+    <List command={command} />
+  </section>;
+}
+export function Headless() {
+  const [open, setOpen] = useState(false);
+  return open ? <Panel onClose={() => setOpen(false)} /> : <button onClick={() => setOpen(true)}>Commands</button>;
+}
+```
+
+`CommandCombobox` contains `state` (engine snapshot), `actions`, `back`, `dismiss`, `rootProps`, `inputProps`, `listboxProps`, `getOptionProps`, `listVisible`, `visibleItems`, `message`, `finalContext` (render `state.finalStep.render(finalContext)` in the final phase) and `tokens` (`feedback`, `showFeedback`, `announcer`, `bannerVisible` with `feedbackId` for the element the input references, `busy`, `mode`). Tab is never handled by the hook: a modal container contains it, a non-modal one lets it through. Keep `commands`, `defaults`, `strategies` and `tokens` stable (module constants or `useMemo`) in the component that calls `useCommandSession`; `callbacks` may be inline.
+
+## Your responsibilities with a custom rendering
+
+With `children` or the hooks, Cmdly keeps the keyboard (on `rootProps`), focus (input, steps, final phase), ARIA ids and live announcements. Your rendering must:
+
+- spread `inputProps` on a text input and give it an accessible name; spread `listboxProps` and `getOptionProps(index)` on the list, rendered only when `listVisible`;
+- render loading (`state.loading`), running (`state.running`) and error states (`message`, `actions.retry` when `state.loadFailed`);
+- render the final phase: `state.finalStep.render(finalContext)` when the command provides it, otherwise a summary with `actions.execute()` (when `timing` is `'before'`) and `dismiss`;
+- render the banner with `id={tokens.feedbackId}` when `tokens.bannerVisible` (the input references it), and in headless use mount `tokens.announcer` (the bubble and palette mount it for `children`);
+- in a fully headless container, decide on Tab: a modal container contains it, a non-modal one lets it through and closes when focus leaves.
+
+## Reference stability
+
+`useCommandSession` re-applies `commands`, `defaults`, `strategies` and `tokens` when their identity changes. Because the component that calls it re-renders on every session change, define them as module constants or with `useMemo`; `callbacks` may be inline. The same applies to the props of `CommandPalette` and `CommandBubble`, where an unstable `tokens` object re-registers token types on each parent render. An external engine is configured once, outside React.
+
+**Try it:** the playground's *custom* Bubble mode uses a custom trigger and a headless content that also renders the workflow progress; its *Shared session* shows one external engine in the palette and in a headless panel.
