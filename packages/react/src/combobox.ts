@@ -36,10 +36,12 @@ export function useCommandCombobox(engine: CommandSessionEngine, { tokenFeedback
   const input = useRef<HTMLInputElement>(null);
   const pointer = useRef<{ x: number; y: number } | null>(null), keyboardNavigation = useRef(false);
   const listId = useId(), feedbackId = useId();
+  // A confirmation that succeeded and stays open replaces its buttons: focus moves to the new first control.
+  const confirmed = state.phase === 'final' && state.finalStep?.timing === 'before' && state.status === 'success';
   useLayoutEffect(() => {
     if (state.phase === 'final') root.current?.querySelector<HTMLElement>(finalFocusable)?.focus();
     else input.current?.focus();
-  }, [state.phase]);
+  }, [state.phase, confirmed]);
   useLayoutEffect(() => {
     if (!state.loading && !state.running && state.items.length) document.getElementById(`${listId}-${state.active}`)?.scrollIntoView?.({ block: 'nearest' });
   }, [state.loading, state.running, state.items, state.active, listId]);

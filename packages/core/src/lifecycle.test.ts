@@ -5,6 +5,24 @@ const step = { id: 'choice', label: 'Choice', options: [{ value: 'a', label: 'A'
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 
 describe('workflow lifecycle', () => {
+  it('keeps a conditional production confirmation open but closes when it does not apply', async () => {
+    const command: Command = {
+      id: 'deploy', label: 'Deploy',
+      steps: [{ id: 'environment', label: 'Environment', options: [{ value: 'staging', label: 'Staging' }, { value: 'production', label: 'Production' }] }],
+      finalStep: { timing: 'before', when: answers => answers.environment === 'production', closeOnComplete: false },
+      run: async () => 'deployed',
+    };
+    const production = createCommandEngine({ commands: [command] });
+    production.select(0); production.select(1);
+    expect(production.getSnapshot()).toMatchObject({ phase: 'final', status: 'idle', closed: false });
+    await production.execute();
+    expect(production.getSnapshot()).toMatchObject({ phase: 'final', status: 'success', result: 'deployed', closed: false, finalStep: { timing: 'before', closeOnComplete: false } });
+    const staging = createCommandEngine({ commands: [command] });
+    staging.select(0); staging.select(0);
+    await vi.waitFor(() => expect(staging.getSnapshot().closed).toBe(true));
+    production.destroy(); staging.destroy();
+  });
+
   it('executes once and closes without a final step, without publishing a final screen', async () => {
     const pending = deferred<string>(), events: string[] = [];
     const run = vi.fn(() => { events.push('run'); return pending.promise; });

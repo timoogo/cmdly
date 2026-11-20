@@ -22,6 +22,7 @@ export function SessionContent({ combobox, children, ...view }: CommandSessionVi
 export function CommandSessionView({ combobox, renderProgress, renderTag }: CommandSessionViewProps) {
   const { state, actions, back, dismiss, inputProps, listboxProps, getOptionProps, listVisible, visibleItems, message, finalContext, tokens } = combobox;
   const CustomFeedback = typeof tokens.mode === 'function' ? tokens.mode : undefined;
+  const confirmed = state.phase === 'final' && state.finalStep?.timing === 'before' && state.status === 'success';
   const tokenView = <>
     {tokens.bannerVisible && <div id={tokens.feedbackId} data-cmdly-token-feedback="banner" data-status={tokens.feedback.status}>
       {tokens.feedback.issues.map(token => <p key={token.id} data-status={token.status}>{describeTokenIssue(token)}</p>)}
@@ -35,11 +36,13 @@ export function CommandSessionView({ combobox, renderProgress, renderTag }: Comm
       {state.finalStep.render ? state.finalStep.render(finalContext) as ReactNode : <>
         <dl>{state.summary.map(item => <div key={item.id}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
         {state.status === 'loading' && <p role="status">Running command…</p>}
+        {/* A confirmation kept open after success (closeOnComplete: false) becomes a result: no second run. */}
+        {confirmed && <p role="status">Command completed.</p>}
         {message && <div role="alert">{message}</div>}
-        {state.canBack && <button type="button" onClick={back} aria-disabled={state.running || undefined}>Back</button>}
-        {state.finalStep.timing === 'before' && <button type="button" onClick={() => void actions.execute()} aria-disabled={state.running || undefined}>{state.status === 'error' ? 'Retry' : 'Confirm'}</button>}
+        {state.canBack && !confirmed && <button type="button" onClick={back} aria-disabled={state.running || undefined}>Back</button>}
+        {state.finalStep.timing === 'before' && !confirmed && <button type="button" onClick={() => void actions.execute()} aria-disabled={state.running || undefined}>{state.status === 'error' ? 'Retry' : 'Confirm'}</button>}
         {state.finalStep.timing === 'after' && state.status === 'error' && <button type="button" onClick={() => void actions.execute()}>Retry</button>}
-        <button type="button" onClick={dismiss}>Cancel</button>
+        <button type="button" onClick={dismiss}>{confirmed ? 'Close' : 'Cancel'}</button>
       </>}
     </> : <>
       <label>{state.step?.label ?? (state.canBack ? state.menuLabel : 'Search commands')}<input {...inputProps} /></label>
