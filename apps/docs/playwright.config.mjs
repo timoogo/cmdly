@@ -11,6 +11,5 @@ export default defineConfig({
   },
   webServer: [
     { command: 'PORT=4378 pnpm start', url: 'http://127.0.0.1:4378', reuseExistingServer: false, timeout: 30000 },
-    { command: 'pnpm --filter playground exec vite preview --host 127.0.0.1 --port 4380 --strictPort', url: 'http://127.0.0.1:4380', reuseExistingServer: false, timeout: 30000 },
   ],
 });
