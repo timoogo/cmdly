@@ -1,6 +1,7 @@
 import {
   isRouteErrorResponse,
   Links,
+  Link,
   Meta,
   Outlet,
   Scripts,
@@ -12,6 +13,23 @@ import './app.css';
 import { isMarkdownPreferred, rewritePath } from 'fumadocs-core/negotiation';
 import NotFound from './routes/not-found';
 import { docsContentRoute, docsRoute } from '@/lib/shared';
+import type { ComponentProps } from 'react';
+import DefaultSearchDialog, { type DefaultSearchDialogProps } from 'fumadocs-ui/components/dialog/search-default';
+import type { SearchItemType } from 'fumadocs-ui/components/dialog/search';
+
+function SiteLink({ href, ...props }: ComponentProps<'a'>) {
+  if (href === '/playground/') return <a href={href} {...props} />;
+  return <Link to={href ?? ''} {...props} />;
+}
+
+function SiteSearchDialog(props: DefaultSearchDialogProps) {
+  const navigation = {
+    onSelect: (item: SearchItemType) => {
+      if (item.type !== 'action' && item.url === '/playground/') window.location.assign(item.url);
+    },
+  };
+  return <DefaultSearchDialog {...props} {...navigation} />;
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -23,7 +41,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body className="flex flex-col min-h-screen">
-        <RootProvider search={{ options: { type: 'static' } }}>{children}</RootProvider>
+        <RootProvider
+          components={{ Link: SiteLink }}
+          search={{
+            SearchDialog: SiteSearchDialog,
+            links: [['Ouvrir le Playground', '/playground/']],
+            options: { type: 'static' },
+          }}
+        >{children}</RootProvider>
         <ScrollRestoration />
         <Scripts />
       </body>

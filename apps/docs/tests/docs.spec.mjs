@@ -104,3 +104,32 @@ test('mobile navigation opens and follows a link', async ({ page }) => {
   await expect(page).toHaveURL(/getting-started\/quick-start/);
   await expect(page.getByRole('heading', { name: 'Quick Start', level: 1 })).toBeVisible();
 });
+
+test('navbar opens the playground from home and documentation', async ({ page }) => {
+  for (const path of ['/', '/docs']) {
+    await page.goto(path, { waitUntil: 'networkidle' });
+    const link = page.getByRole('link', { name: 'Playground', exact: true }).first();
+    await expect(link).toHaveAttribute('href', '/playground/');
+    await link.click();
+    await expect(page.getByRole('button', { name: /Progress & async/ })).toBeVisible();
+    await expect(page).toHaveURL(/\/playground\/$/);
+  }
+});
+
+test('search shortcut opens the playground with the keyboard', async ({ page }) => {
+  await page.goto('/docs', { waitUntil: 'networkidle' });
+  await page.keyboard.press('Control+k');
+  const shortcut = page.getByRole('option', { name: 'Ouvrir le Playground' });
+  await expect(shortcut).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: /Progress & async/ })).toBeVisible();
+});
+
+test('mobile navigation opens the playground', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/docs', { waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: 'Open Sidebar' }).click();
+  await page.locator('#nd-sidebar-mobile').getByRole('link', { name: 'Playground', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Progress & async/ })).toBeVisible();
+});
