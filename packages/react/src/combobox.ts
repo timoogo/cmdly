@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
-import type { CSSProperties, KeyboardEvent, RefObject } from 'react';
+import type { CSSProperties, KeyboardEvent, MouseEvent, RefObject } from 'react';
 import type { CommandView, EngineSnapshot, FinalContext, Option, TokenFeedback } from '@cmdly/core';
 import type { CommandSessionEngine } from './session.js';
 import { useTokenAnnouncement, type TokenFeedbackMode } from './token-feedback.js';
@@ -82,6 +82,10 @@ export function useCommandCombobox(engine: CommandSessionEngine, { tokenFeedback
   const listboxProps = { role: 'listbox' as const, id: listId, 'aria-label': state.step?.label ?? state.menuLabel, 'aria-busy': busy || undefined };
   const getOptionProps = (index: number) => ({
     id: `${listId}-${index}`, role: 'option' as const, 'aria-selected': index === state.active, 'aria-posinset': index + 1, 'aria-setsize': state.items.length,
+    onMouseDown: (event: MouseEvent<HTMLElement>) => {
+      const focusable = event.target instanceof Element && event.target.closest('button, input, select, textarea, a[href], [tabindex], [contenteditable]:not([contenteditable="false"])');
+      if (event.button === 0 && document.activeElement === input.current && (!focusable || !event.currentTarget.contains(focusable))) event.preventDefault();
+    },
     onMouseMove: (event: { clientX: number; clientY: number; movementX?: number; movementY?: number }) => {
       const previous = pointer.current;
       const moved = previous ? previous.x !== event.clientX || previous.y !== event.clientY : (event.movementX || 0) !== 0 || (event.movementY || 0) !== 0;
@@ -123,6 +127,7 @@ export type CommandCombobox = {
   /** For each item of `visibleItems`, by its `index`: ARIA, pointer activation and selection. */
   getOptionProps: (index: number) => {
     id: string; role: 'option'; 'aria-selected': boolean; 'aria-posinset': number; 'aria-setsize': number;
+    onMouseDown: (event: MouseEvent<HTMLElement>) => void;
     onMouseMove: (event: { clientX: number; clientY: number; movementX?: number; movementY?: number }) => void;
     onClick: () => void;
   };
