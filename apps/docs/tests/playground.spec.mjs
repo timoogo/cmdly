@@ -5,7 +5,8 @@ test('playground opens a Try it demo and shows real progress', async ({ page }) 
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await page.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
-  await page.goto('http://127.0.0.1:4380/', { waitUntil: 'networkidle' });
+  await page.goto('/playground', { waitUntil: 'networkidle' });
+  await expect(page).toHaveURL(/\/playground\/?$/);
   await page.getByRole('button', { name: /Progress & async/ }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('option', { name: 'Open a project' })).toBeVisible();
@@ -21,4 +22,9 @@ test('playground opens a Try it demo and shows real progress', async ({ page }) 
   await expect(dialog).toBeHidden();
   await expect(page.locator('.activity')).toContainText('Project opened');
   expect(errors).toEqual([]);
+});
+
+test('playground is available with a trailing slash', async ({ page }) => {
+  await page.goto('/playground/', { waitUntil: 'networkidle' });
+  await expect(page.getByRole('button', { name: /Progress & async/ })).toBeVisible();
 });
