@@ -50,7 +50,7 @@ export function useCommandCombobox(engine: CommandSessionEngine, { tokenFeedback
     if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && state.arrowNavigation && event.target === input.current && !state.query && !event.nativeEvent.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
       if (event.key === 'ArrowLeft' && state.canBack && !state.running) { event.preventDefault(); back(); }
       else if (event.key === 'ArrowRight' && state.canForward) { event.preventDefault(); actions.forward(); }
-    } else if (event.key === 'Escape') { event.preventDefault(); if (state.canBack && !state.running) back(); else dismiss(); }
+    } else if (event.key === 'Escape') { event.preventDefault(); if (state.canBack && !state.running && state.phase !== 'final') back(); else dismiss(); } // a final screen closes directly
     else if (event.key === 'ArrowDown' && state.phase !== 'final') { event.preventDefault(); keyboardNavigation.current = true; actions.setActive(state.items.length ? (state.active + 1) % state.items.length : 0); }
     else if (event.key === 'ArrowUp' && state.phase !== 'final') { event.preventDefault(); keyboardNavigation.current = true; actions.setActive(state.items.length ? (state.active - 1 + state.items.length) % state.items.length : 0); }
     else if (event.key === 'Enter' && event.target === input.current) { event.preventDefault(); actions.select(state.active); }
