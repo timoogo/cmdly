@@ -119,3 +119,5 @@ The feedback stays visible during the final confirmation step. Live regions and 
 ## Limitations
 
 No value autocompletion, no quoted values or values containing spaces, prefixes are recognized only at the start of a word, `detect` is synchronous, there is no built-in debounce (use `signal`), no per-type feedback, built-in feedback texts are English only, local types cannot be registered independently of their command yet, captured tokens are not revalidated when their type changes, and step option loaders are neither reloaded when tokens change nor aborted.
+
+**Try it:** run `pnpm dev`, then choose **Tokens** in the playground's *Try it* grid. The *Token feedback* setting switches between the banner, loader, none and a custom component.

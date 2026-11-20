@@ -11,7 +11,7 @@ description: "A floating or inline trigger opening the palette or its own popove
 - `label`: accessible name of the trigger and of the palette or popover (default `'Command palette'`). `trigger`: button content, or a function rendering your own element (see Customization).
 - `className` and `style` apply to the wrapper (`data-cmdly-bubble`, `data-mode`, `data-layout`, `data-placement`, `data-state`). In standalone mode the popover is inside the wrapper: style the trigger with a child selector (`.my-bubble > button`).
 
-The standalone popover closes on an outside press, when focus moves outside the bubble (Tab is not contained), on Escape at the root or on the trigger, on Cancel, and after a successful run unless the command keeps its final step open (`closeOnComplete: false`). Escape inside a step goes back. Focus returns to the trigger after Escape, Cancel or completion, not after an outside press or Tab. In trigger mode the palette contains Tab, closes on an outside press (the trigger itself toggles it) and restores focus to the trigger, unless the press landed on another focusable element. Cmdly expects one bubble per application and warns in development when several are mounted.
+The standalone popover closes on an outside press, when focus moves outside the bubble (Tab is not contained), on Escape at the root, on a final screen or on the trigger, on Cancel, and after a successful run unless the command keeps its final step open (`closeOnComplete: false`). Escape inside a step goes back. Focus returns to the trigger after Escape, Cancel or completion, not after an outside press or Tab. In trigger mode the palette contains Tab, closes on an outside press (the trigger itself toggles it) and restores focus to the trigger, unless the press landed on another focusable element. Cmdly expects one bubble per application and warns in development when several are mounted.
 
 ```tsx
 import { useEffect, useRef, useState } from 'react';
@@ -48,8 +48,10 @@ export const Shared = () => <CommandBubble mode="standalone" engine={shared} />;
 | | Owned (`commands`) | External (`engine`) |
 |---|---|---|
 | Created | at each opening | by you (`createCommandEngine`) |
-| Escape at the root, Cancel, outside press, Tab out (standalone) | closes the session (a running command is aborted) | hides the interface only; query, step, tokens and a running command are kept |
+| Escape at the root or on a final screen, Cancel, outside press, Tab out (standalone) | closes the session (a running command is aborted) | hides the interface only; query, step, tokens and a running command are kept |
 | Completion | closes the session and the interface | the engine closes itself; the interface follows |
 | Destroyed | when the interface closes | never by Cmdly: call `engine.destroy()` |
 
 Hiding an interface is not closing a session. `onOpenChange(false)` only hides; `engine.close()` ends a session for good (`closed` never resets, `callbacks.onClose` runs) and a closed engine is not shown again: create a new one. To share a session, pass the same engine to several interfaces (palette, bubble, headless view), one at a time: each resumes where the previous one stopped. Configure an external engine yourself (`setOptions`, `tokens`, `refreshRegistry()` for registries).
+
+**Try it:** run `pnpm dev` and switch the playground's *Bubble mode* between trigger and standalone.

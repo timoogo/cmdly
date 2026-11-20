@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 const checks = [
-  ['simple.ts', 'getting-started/quick-start.mdx'],
+  ['quick-start.tsx', 'getting-started/quick-start.mdx'],
   ['simple.ts', 'getting-started/first-command.mdx'],
   ['workflow.ts', 'getting-started/first-workflow.mdx'],
   ['registry.ts', 'registries/create-compose.mdx'],

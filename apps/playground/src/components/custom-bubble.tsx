@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { describeTokenIssue, type CommandBubbleTriggerProps, type CommandCombobox } from '@cmdly/react';
+import { WorkflowProgressView } from './progress';
 
 /** A custom trigger element: the bubble's props keep ARIA, keyboard and focus behaviour. */
 export function PillTrigger(props: CommandBubbleTriggerProps) {
@@ -10,16 +11,19 @@ export function PillTrigger(props: CommandBubbleTriggerProps) {
 export function CompactContent({ command }: { command: CommandCombobox }) {
   const { state, actions, back, dismiss, inputProps, listboxProps, getOptionProps, visibleItems, listVisible, message, finalContext, tokens } = command;
   if (state.phase === 'final' && state.finalStep) {
+    const confirmed = state.finalStep.timing === 'before' && state.status === 'success'; // kept open after success: a result
     return <div className="compact">
       {state.finalStep.render ? state.finalStep.render(finalContext) as ReactNode : <>
         <ul className="compact-summary">{state.summary.map(item => <li key={item.id}><span>{item.label}</span> {item.value}</li>)}</ul>
         {state.running && <p role="status">Working…</p>}
+        {confirmed && <p role="status">Command completed.</p>}
         {message && <p role="alert">{message}</p>}
         <div className="compact-actions">
-          {state.finalStep.timing === 'before' && <button type="button" onClick={() => void actions.execute()} aria-disabled={state.running || undefined}>{state.status === 'error' ? 'Retry' : 'Run'}</button>}
+          {state.finalStep.timing === 'before' && !confirmed && <button type="button" onClick={() => void actions.execute()} aria-disabled={state.running || undefined}>{state.status === 'error' ? 'Retry' : 'Run'}</button>}
           <button type="button" onClick={dismiss}>Close</button>
         </div>
       </>}
+      {state.progress && <WorkflowProgressView progress={state.progress} />}
     </div>;
   }
   return <div className="compact">
@@ -34,5 +38,6 @@ export function CompactContent({ command }: { command: CommandCombobox }) {
     {listVisible && <ul {...listboxProps} className="compact-list">
       {visibleItems.map(({ item, index }) => <li key={'id' in item ? item.id : item.value} {...getOptionProps(index)}>{item.label}</li>)}
     </ul>}
+    {state.progress && <WorkflowProgressView progress={state.progress} />}
   </div>;
 }

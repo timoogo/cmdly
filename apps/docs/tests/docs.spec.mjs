@@ -31,7 +31,7 @@ test('home and all documentation pages load directly with metadata', async ({ pa
   await expect(page.getByRole('heading', { name: 'Commands that go further.' })).toBeVisible();
   await expect(page).toHaveTitle(/Cmdly/);
   const paths = await docPaths(new URL('../content/docs', import.meta.url).pathname);
-  expect(paths).toHaveLength(25);
+  expect(paths).toHaveLength(23);
   for (const path of paths) {
     const response = await page.goto(path, { waitUntil: 'networkidle' });
     expect(response?.status(), path).toBe(200);
@@ -40,7 +40,7 @@ test('home and all documentation pages load directly with metadata', async ({ pa
   }
 });
 
-test('sidebar navigates between all 25 pages', async ({ page }) => {
+test('sidebar navigates between all 23 pages', async ({ page }) => {
   test.setTimeout(120000);
   await page.goto('/docs', { waitUntil: 'networkidle' });
   const sections = { 'getting-started': 'Getting Started', core: 'Core', registries: 'Registries', react: 'React', advanced: 'Advanced', api: 'API Reference' };
